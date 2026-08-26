@@ -1,13 +1,15 @@
 import { spawnSync } from "node:child_process";
 import { digestOfBytes } from "./canonical-json.mjs";
 import { isSecretEnvName, validateValue } from "./contracts.mjs";
+import { isolateArgv } from "./sandbox.mjs";
 
 // Exact-argv target-command runner. Never a shell: argv[0] is the executable
-// and every element is passed byte-for-byte. The environment is constructed
-// from scratch — PATH, explicitly allowlisted names copied from the host,
-// and kernel-injected variables — so ambient secrets are never inherited.
-// No network is granted (the runner adds nothing that enables it, and no
-// proxy configuration survives the clean environment). Execution is bounded
+// and every element is passed byte-for-byte. Every command executes inside
+// the mandatory OS sandbox (no network, read-only filesystem, fork denial
+// under the process ceiling) — if isolation cannot be enforced, nothing
+// runs. The environment is additionally constructed from scratch — PATH,
+// explicitly allowlisted names copied from the host, and kernel-injected
+// variables — so ambient secrets are never inherited. Execution is bounded
 // by a hard timeout and an output byte ceiling, and the result is a
 // schema-validated command-report@1 whose argv echo proves preservation.
 
@@ -47,7 +49,8 @@ export function runTargetCommand({
   envAllowlist = [],
   injectEnv = {},
   timeoutSeconds,
-  maxOutputBytes
+  maxOutputBytes,
+  maxProcesses
 }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) {
     throw new Error("argv must be a non-empty array of non-empty strings");
@@ -59,8 +62,12 @@ export function runTargetCommand({
     throw new Error("maxOutputBytes must be a positive integer");
   }
 
+  // The report echoes the exact declared argv; isolation is transport.
+  // isolateArgv throws SandboxUnavailableError when enforcement is
+  // impossible — nothing runs unsandboxed.
+  const isolated = isolateArgv(argv, { maxProcesses });
   const env = buildCleanEnvironment({ envAllowlist, injectEnv });
-  const spawned = spawnSync(argv[0], argv.slice(1), {
+  const spawned = spawnSync(isolated[0], isolated.slice(1), {
     cwd,
     env,
     shell: false,

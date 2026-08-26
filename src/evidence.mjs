@@ -9,17 +9,22 @@ import { validateDocument, validateValue } from "./contracts.mjs";
 // validator that produced it. Mutation or omission of any object is
 // detectable offline by recomputing digests.
 
-export function createEvidenceIndex({ rootDir, binding }) {
+export function createEvidenceIndex({ rootDir, binding, maxTotalBytes = Number.MAX_SAFE_INTEGER }) {
   const objectsDir = join(rootDir, "objects", "sha256");
   mkdirSync(objectsDir, { recursive: true });
   const artifacts = [];
   const seenIds = new Set();
   let finalized = false;
+  let totalBytes = 0;
 
   return {
     put({ artifactId, checkId, validatorId, bytes, mediaType = "application/json" }) {
       if (finalized) throw new Error("evidence index is finalized");
       if (seenIds.has(artifactId)) throw new Error(`artifact id ${artifactId} already indexed`);
+      if (totalBytes + bytes.length > maxTotalBytes) {
+        throw new Error(`evidence ceiling exceeded: ${totalBytes + bytes.length} bytes would exceed the ${maxTotalBytes}-byte artifact ceiling`);
+      }
+      totalBytes += bytes.length;
       seenIds.add(artifactId);
       const digest = digestOfBytes(bytes);
       writeFileSync(join(objectsDir, digest.slice("sha256:".length)), bytes);

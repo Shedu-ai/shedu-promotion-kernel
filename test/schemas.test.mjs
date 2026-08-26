@@ -176,6 +176,7 @@ test("mechanism registry requires negative fixtures and unique ids", () => {
     effect: "BLOCKING",
     resultConsumer: "DISPOSITION_REDUCER",
     evidenceSink: "evidence-index",
+    activationEvidence: null,
     negativeFixtures: [{ fixtureId: "planted-violation", description: "planted scope escape must fire" }],
     status: "INTEGRATED"
   };

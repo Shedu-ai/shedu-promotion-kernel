@@ -13,9 +13,16 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "non-descendant-candidate", "description": "a candidate that is not a descendant of base FIREs and blocks" },
-        { "fixtureId": "dirty-materialization", "description": "a mutated candidate workspace FIREs and blocks" }
+        {
+          "fixtureId": "non-descendant-candidate",
+          "description": "a candidate that is not a descendant of base FIREs, halts the run, and blocks"
+        },
+        {
+          "fixtureId": "dirty-materialization",
+          "description": "a mutated candidate workspace FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
@@ -31,8 +38,12 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "post-validation-mutation", "description": "a workspace mutated after validation FIREs and blocks" }
+        {
+          "fixtureId": "post-validation-mutation",
+          "description": "a workspace mutated after validation FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
@@ -48,17 +59,54 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "forbidden-change", "description": "a change to a forbidden path FIREs and blocks" },
-        { "fixtureId": "readonly-change", "description": "a change to a readonly path FIREs and blocks" },
-        { "fixtureId": "unclassified-change", "description": "a change outside every scope set FIREs and blocks" },
-        { "fixtureId": "case-collision", "description": "case-colliding candidate paths FIRE and block" },
-        { "fixtureId": "symlink-escape", "description": "a symlink escaping the repository FIREs and blocks" }
+        {
+          "fixtureId": "forbidden-change",
+          "description": "a change to a forbidden path FIREs, halts the run, and blocks"
+        },
+        {
+          "fixtureId": "readonly-change",
+          "description": "a change to a readonly path FIREs and blocks"
+        },
+        {
+          "fixtureId": "unclassified-change",
+          "description": "a change outside every scope set FIREs and blocks"
+        },
+        {
+          "fixtureId": "case-collision",
+          "description": "case-colliding candidate paths FIRE and block"
+        },
+        {
+          "fixtureId": "symlink-escape",
+          "description": "a symlink escaping the repository FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
     {
-      "mechanismId": "validation-plan-execute",
+      "mechanismId": "validation-plan-admission",
+      "validatorId": "validation-plan-execute@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/validation-plan.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "CONTRACT_ADMISSION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "activationEvidence": null,
+      "negativeFixtures": [
+        {
+          "fixtureId": "failing-admission-command",
+          "description": "a failing admission-phase command FIREs, halts the run, and blocks"
+        }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "validation-plan-validation",
       "validatorId": "validation-plan-execute@1",
       "owner": "shedu-promotion-kernel",
       "producer": "src/validators/validation-plan.mjs",
@@ -69,9 +117,37 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "failing-command", "description": "a failing validation command FIREs and blocks" },
-        { "fixtureId": "omitted-command", "description": "an unexecuted required command can never yield PROMOTABLE" }
+        {
+          "fixtureId": "failing-command",
+          "description": "a failing validation-phase command FIREs and blocks"
+        },
+        {
+          "fixtureId": "omitted-command",
+          "description": "an unexecuted required command can never yield PROMOTABLE"
+        }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "validation-plan-finalization",
+      "validatorId": "validation-plan-execute@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/validation-plan.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "activationEvidence": null,
+      "negativeFixtures": [
+        {
+          "fixtureId": "failing-finalization-command",
+          "description": "a failing finalization-phase command FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
@@ -87,9 +163,16 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "mutated-evidence", "description": "a mutated evidence artifact FIREs and blocks" },
-        { "fixtureId": "missing-evidence", "description": "an unindexed required result FIREs and blocks" }
+        {
+          "fixtureId": "mutated-evidence",
+          "description": "a mutated evidence artifact FIREs, halts the run, and blocks"
+        },
+        {
+          "fixtureId": "missing-evidence",
+          "description": "an unindexed required result FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
@@ -105,10 +188,20 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "unacknowledged-collision", "description": "an unacknowledged doNotRebuild collision FIREs and blocks" },
-        { "fixtureId": "unauthorized-follow-up", "description": "a follow-up outside the entry's allowed set FIREs and blocks" },
-        { "fixtureId": "ambiguous-collision", "description": "a REVIEW_REQUESTED collision yields the REVIEW_REQUIRED admission result and blocks" }
+        {
+          "fixtureId": "unacknowledged-collision",
+          "description": "an unacknowledged doNotRebuild collision FIREs, halts the run, and blocks"
+        },
+        {
+          "fixtureId": "unauthorized-follow-up",
+          "description": "a follow-up outside the allowed set FIREs and blocks"
+        },
+        {
+          "fixtureId": "ambiguous-collision",
+          "description": "a REVIEW_REQUESTED collision yields REVIEW_REQUIRED and blocks"
+        }
       ],
       "status": "INTEGRATED"
     },
@@ -124,11 +217,28 @@
       "effect": "BLOCKING",
       "resultConsumer": "DISPOSITION_REDUCER",
       "evidenceSink": "evidence-index",
+      "activationEvidence": null,
       "negativeFixtures": [
-        { "fixtureId": "registered-not-dispatched", "description": "a registered mechanism the plan never dispatches FIREs and blocks" },
-        { "fixtureId": "dispatched-not-registered", "description": "a dispatched target blocking check with no registry row FIREs and blocks" },
-        { "fixtureId": "validator-impersonation", "description": "a registry row naming a different validator than dispatched FIREs and blocks" },
-        { "fixtureId": "liveness-below-threshold", "description": "a mechanism below the configured minimum status FIREs and blocks" }
+        {
+          "fixtureId": "registered-not-dispatched",
+          "description": "a registered mechanism the plan never dispatches FIREs and blocks"
+        },
+        {
+          "fixtureId": "dispatched-not-registered",
+          "description": "a dispatched target blocking check with no registry row FIREs and blocks"
+        },
+        {
+          "fixtureId": "validator-impersonation",
+          "description": "a registry row naming a different validator than dispatched FIREs and blocks"
+        },
+        {
+          "fixtureId": "liveness-below-threshold",
+          "description": "a mechanism below the configured minimum status FIREs and blocks"
+        },
+        {
+          "fixtureId": "unproven-activation",
+          "description": "a status above LANDED_ONLY without verified activation-pair evidence FIREs and blocks"
+        }
       ],
       "status": "INTEGRATED"
     }

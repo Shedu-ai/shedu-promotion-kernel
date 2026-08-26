@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { validateValue } from "../src/contracts.mjs";
 import { buildCleanEnvironment, runTargetCommand } from "../src/runner.mjs";
+import { overrideSandboxProbe, sandboxStatus } from "../src/sandbox.mjs";
 
 const DEFAULTS = {
   commandId: "probe",
   phase: "CANDIDATE_VALIDATION",
   cwd: process.cwd(),
   timeoutSeconds: 30,
-  maxOutputBytes: 1024 * 1024
+  maxOutputBytes: 1024 * 1024,
+  maxProcesses: 1
 };
 
 test("hostile argv round-trips byte-for-byte with no shell interpretation", () => {
@@ -40,8 +45,77 @@ test("hostile argv round-trips byte-for-byte with no shell interpretation", () =
 test("a shell-string command is an executable name, never a shell line", () => {
   const execution = runTargetCommand({ ...DEFAULTS, argv: ["echo $HOME && rm -rf /"] });
   assert.equal(execution.succeeded, false);
-  assert.equal(execution.spawnFailed, true);
-  assert.equal(execution.report.exitCode, null);
+  // The sandbox launcher fails to exec the nonexistent binary; either way,
+  // nothing shell-interprets the string.
+  assert.notEqual(execution.report.exitCode, 0);
+});
+
+test("the sandbox denies network access to target commands", () => {
+  const connect = runTargetCommand({
+    ...DEFAULTS,
+    argv: [
+      "node",
+      "-e",
+      'const s=require("node:net").connect(80,"127.0.0.1");s.on("error",e=>{console.log("BLOCKED:"+e.code);process.exit(0)});s.on("connect",()=>{console.log("CONNECTED");process.exit(1)});setTimeout(()=>process.exit(1),3000)'
+    ]
+  });
+  assert.equal(connect.succeeded, true, connect.stderr.toString());
+  assert.match(connect.stdout.toString(), /BLOCKED:EPERM/);
+
+  const listen = runTargetCommand({
+    ...DEFAULTS,
+    argv: [
+      "node",
+      "-e",
+      'const s=require("node:net").createServer();s.on("error",e=>{console.log("BLOCKED:"+e.code);process.exit(0)});s.listen(0,()=>{console.log("LISTENING");process.exit(1)})'
+    ]
+  });
+  assert.equal(listen.succeeded, true, listen.stderr.toString());
+  assert.match(listen.stdout.toString(), /BLOCKED:EPERM/);
+});
+
+test("the sandbox makes the filesystem read-only for target commands", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shedu-robox-"));
+  const execution = runTargetCommand({
+    ...DEFAULTS,
+    cwd: dir,
+    argv: [
+      "node",
+      "-e",
+      'try{require("node:fs").writeFileSync("attack.txt","x");console.log("WROTE");process.exit(1)}catch(e){console.log("BLOCKED:"+e.code);process.exit(0)}'
+    ]
+  });
+  assert.equal(execution.succeeded, true, execution.stderr.toString());
+  assert.match(execution.stdout.toString(), /BLOCKED:EPERM/);
+});
+
+test("the process ceiling is enforced: fork denial at 1, refusal above 1", () => {
+  const fork = runTargetCommand({
+    ...DEFAULTS,
+    argv: [
+      "node",
+      "-e",
+      'const r=require("node:child_process").spawnSync("node",["-e","console.log(1)"]);console.log(r.error?("FORK_BLOCKED:"+r.error.code):"FORKED");process.exit(r.error?0:1)'
+    ]
+  });
+  assert.equal(fork.succeeded, true, fork.stderr.toString());
+  assert.match(fork.stdout.toString(), /FORK_BLOCKED/);
+
+  // A ceiling this backend cannot enforce exactly is refused, not assumed.
+  assert.throws(() => runTargetCommand({ ...DEFAULTS, maxProcesses: 8, argv: ["node", "-e", "process.exit(0)"] }), /process ceiling/);
+});
+
+test("execution fails closed when no enforcing sandbox is available", () => {
+  overrideSandboxProbe({ available: false, reason: "forced unavailable for test" });
+  try {
+    assert.throws(
+      () => runTargetCommand({ ...DEFAULTS, argv: ["node", "-e", "process.exit(0)"] }),
+      (error) => error.reasonCode === "SANDBOX_UNAVAILABLE"
+    );
+  } finally {
+    overrideSandboxProbe(null);
+  }
+  assert.equal(sandboxStatus().available, true);
 });
 
 test("the environment is constructed, not inherited", () => {

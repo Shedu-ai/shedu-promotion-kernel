@@ -243,6 +243,7 @@ test("census tuples derive mechanically from registry and compiled plan", () => 
     effect: "BLOCKING",
     resultConsumer: "DISPOSITION_REDUCER",
     evidenceSink: "evidence-index",
+    activationEvidence: null,
     negativeFixtures: [{ fixtureId: "planted-violation", description: "planted violation must fire" }],
     status: "INTEGRATED"
   };

@@ -36,7 +36,15 @@ test("a conforming candidate evaluates to PROMOTABLE with verifiable evidence", 
 
   // Every mandatory check executed and passed exactly once.
   const outcomes = new Map(outcome.receipt.checkResults.map((r) => [r.checkId, r.outcome]));
-  for (const id of ["candidate-identity-verify", "scope-boundary-classify", "validation-plan-execute", "candidate-tree-stability", "evidence-binding-index"]) {
+  for (const id of [
+    "candidate-identity-verify",
+    "validation-plan-admission",
+    "scope-boundary-classify",
+    "validation-plan-validation",
+    "candidate-tree-stability",
+    "evidence-binding-index",
+    "validation-plan-finalization"
+  ]) {
     assert.equal(outcomes.get(id), "PASS", id);
   }
   // Changed-file attribution is present and classified.
@@ -78,9 +86,12 @@ test("a failing validation command blocks with explicit machine reasons", () => 
   assert.equal(outcome.receipt.disposition, "BLOCKED");
   assert.ok(outcome.receipt.reasonCodes.includes("CHECK_FIRED"));
   assert.ok(outcome.receipt.reasonCodes.includes("COMMAND_FAILED"));
-  const vp = outcome.receipt.checkResults.find((r) => r.checkId === "validation-plan-execute");
+  // The command is declared for CANDIDATE_VALIDATION and executed by exactly
+  // that phase's check; the other phase checks pass with empty command sets.
+  const vp = outcome.receipt.checkResults.find((r) => r.checkId === "validation-plan-validation");
   assert.equal(vp.outcome, "FIRED");
   assert.ok(vp.evidence.some((e) => e.artifactId === "command-report-will-fail"));
+  assert.equal(outcome.receipt.checkResults.find((r) => r.checkId === "validation-plan-admission").outcome, "PASS");
 });
 
 test("a scope violation blocks and the candidate cannot rewrite policy authority", () => {
@@ -100,6 +111,12 @@ test("a scope violation blocks and the candidate cannot rewrite policy authority
   assert.deepEqual(outcome.receipt.changedFiles, [
     { path: "policy/profile.json", changeKind: "MODIFIED", scopeClass: "FORBIDDEN" }
   ]);
+  // Containment failure halts the run: everything after scope-boundary is an
+  // explicit SKIPPED record, and validation never ran against the candidate.
+  assert.ok(outcome.receipt.reasonCodes.includes("CHECK_SKIPPED"));
+  const after = outcome.receipt.checkResults.filter((r) => r.checkId !== "scope-boundary-classify" && r.outcome === "SKIPPED");
+  assert.ok(after.some((r) => r.checkId === "validation-plan-validation"));
+  assert.ok(after.some((r) => r.checkId === "evidence-binding-index"));
 });
 
 test("an identity failure halts the run and fails closed", () => {
@@ -113,11 +130,18 @@ test("an identity failure halts the run and fails closed", () => {
   assert.equal(outcome.ok, true);
   assert.equal(outcome.receipt.disposition, "BLOCKED");
   assert.ok(outcome.receipt.reasonCodes.includes("CANDIDATE_NOT_DESCENDANT"));
-  assert.ok(outcome.receipt.reasonCodes.includes("MISSING_REQUIRED_RESULT"));
-  // Only the admission check ran: validation never executed against an
-  // unverified candidate.
-  assert.equal(outcome.receipt.checkResults.length, 1);
+  assert.ok(outcome.receipt.reasonCodes.includes("CHECK_SKIPPED"));
+  // The identity failure halts immediately; every remaining required check
+  // carries an explicit SKIPPED non-success record, so omitted work is
+  // recorded, never silent.
   assert.equal(outcome.receipt.checkResults[0].checkId, "candidate-identity-verify");
+  assert.equal(outcome.receipt.checkResults[0].outcome, "FIRED");
+  const rest = outcome.receipt.checkResults.slice(1);
+  assert.ok(rest.length >= 6);
+  for (const result of rest) {
+    assert.equal(result.outcome, "SKIPPED", result.checkId);
+    assert.deepEqual(result.reasonCodes, ["CHECK_SKIPPED"]);
+  }
 });
 
 test("a blocking target-command pack check gates the disposition", () => {

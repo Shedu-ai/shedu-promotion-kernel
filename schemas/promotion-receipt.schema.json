@@ -162,7 +162,7 @@
         "planDigest": {"$ref": "#/$defs/digest"},
         "candidateId": {"$ref": "#/$defs/commitId"},
         "effect": {"enum": ["BLOCKING", "ADVISORY"]},
-        "outcome": {"enum": ["PASS", "FIRED", "INFRA_FAILURE"]},
+        "outcome": {"enum": ["PASS", "FIRED", "INFRA_FAILURE", "SKIPPED"]},
         "reasonCodes": {
           "type": "array",
           "maxItems": 32,

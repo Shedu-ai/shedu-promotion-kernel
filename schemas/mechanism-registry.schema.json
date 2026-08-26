@@ -26,6 +26,7 @@
           "effect",
           "resultConsumer",
           "evidenceSink",
+          "activationEvidence",
           "negativeFixtures",
           "status"
         ],
@@ -41,6 +42,20 @@
           "effect": {"enum": ["BLOCKING", "ADVISORY"]},
           "resultConsumer": {"enum": ["DISPOSITION_REDUCER", "EVIDENCE_ONLY"]},
           "evidenceSink": {"$ref": "#/$defs/kebabId"},
+          "activationEvidence": {
+            "oneOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["negative", "conforming"],
+                "properties": {
+                  "negative": {"$ref": "#/$defs/activationRef"},
+                  "conforming": {"$ref": "#/$defs/activationRef"}
+                }
+              }
+            ]
+          },
           "negativeFixtures": {
             "type": "array",
             "minItems": 1,
@@ -67,6 +82,17 @@
       "type": "string",
       "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64})$",
       "maxLength": 128
+    },
+    "activationRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receiptPath", "receiptDigest", "planPath", "planDigest"],
+      "properties": {
+        "receiptPath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"},
+        "receiptDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "planPath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"},
+        "planDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
     }
   }
 }

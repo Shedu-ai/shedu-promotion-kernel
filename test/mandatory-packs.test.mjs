@@ -8,10 +8,12 @@ import { makeCheck, makeContract, makePack, makeProfile, pinPacks, profileEntrie
 
 const MANDATORY_CHECK_IDS = [
   "candidate-identity-verify",
+  "validation-plan-admission",
   "scope-boundary-classify",
-  "validation-plan-execute",
+  "validation-plan-validation",
   "candidate-tree-stability",
-  "evidence-binding-index"
+  "evidence-binding-index",
+  "validation-plan-finalization"
 ];
 
 function fixture() {
@@ -48,7 +50,7 @@ test("every default compilation injects all four mandatory packs", () => {
   assert.ok(checkIds.includes("team-check"));
   // Admission runs first, finalization last.
   assert.equal(checkIds[0], "candidate-identity-verify");
-  assert.deepEqual(checkIds.slice(-2).sort(), ["candidate-tree-stability", "evidence-binding-index"]);
+  assert.deepEqual(checkIds.slice(-3), ["candidate-tree-stability", "evidence-binding-index", "validation-plan-finalization"]);
   // The plan digest set binds the kernel pack digests.
   const pinned = new Map(result.plan.sourceDigests.packs.map((p) => [p.packId, p.digest]));
   for (const pack of mandatoryKernelPacks()) {

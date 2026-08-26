@@ -80,17 +80,17 @@ test("kernel self-census over a real run: all five stages equal with ZERO exclus
   assert.equal(census.complete, true, JSON.stringify(census, null, 2));
   assert.deepEqual(census.exclusions, []);
   assert.deepEqual(census.stageCounts, {
-    registered: 7,
-    implemented: 7,
-    dispatched: 7,
-    emitted: 7,
-    consumed: 7
+    registered: 9,
+    implemented: 9,
+    dispatched: 9,
+    emitted: 9,
+    consumed: 9
   });
 });
 
 test("every kernel mechanism is INTEGRATED with declared negative fixtures", () => {
   const registry = loadKernelRegistry();
-  assert.equal(registry.mechanisms.length, 7);
+  assert.equal(registry.mechanisms.length, 9);
   for (const mechanism of registry.mechanisms) {
     assert.equal(mechanism.status, "INTEGRATED", mechanism.mechanismId);
     assert.ok(mechanism.negativeFixtures.length >= 1, mechanism.mechanismId);

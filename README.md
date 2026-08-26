@@ -2,7 +2,7 @@
 
 Shedu Promotion Kernel is a model-independent, evidence-bound gate for AI-generated software changes. Its job is deliberately narrow: decide whether an immutable candidate may be promoted into a target repository.
 
-> **Status: EXPERIMENTAL.** The promotion pipeline — compiler, mandatory integrity packs, isolated exact-argv execution, disposition reducer, content-addressed evidence, and offline-verifiable receipts — is implemented and gated by regenerable conformance evidence in [`conformance/status.json`](conformance/status.json). The subject probe reports `EXPERIMENTAL` only while that evidence validates for the current release; it is not a claim of production readiness or certification.
+> **Status: EXPERIMENTAL.** The promotion pipeline — compiler, mandatory integrity packs, OS-sandboxed exact-argv execution (network denied, filesystem read-only, fork denied; fail-closed when isolation is unavailable), evaluation-wide resource ceilings, per-phase command scheduling, containment halts with explicit skip records, disposition reducer, content-addressed evidence, receipt-proven mechanism activation, and offline-verifiable receipts — is implemented and gated by regenerable conformance evidence in [`conformance/status.json`](conformance/status.json). The subject probe reports `EXPERIMENTAL` only while that evidence validates for the current release; it is not a claim of production readiness or certification. The sandbox backend currently exists for macOS (`sandbox-exec`); other platforms fail closed.
 
 ## Promotion path
 

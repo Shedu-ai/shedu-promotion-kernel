@@ -74,7 +74,7 @@ export function makeContract(overrides = {}) {
     mechanismRegistry: null,
     artifactRoot: "artifacts/",
     maxRuntimeSeconds: 600,
-    resourceCeilings: { maxOutputBytes: 1048576, maxArtifactBytes: 1048576, maxProcesses: 16 },
+    resourceCeilings: { maxOutputBytes: 1048576, maxArtifactBytes: 1048576, maxProcesses: 1 },
     authorization: { identity: "example-authorizer", issuedAt: "2026-08-26T00:00:00Z", signature: null },
     ...overrides
   };

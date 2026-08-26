@@ -1,7 +1,9 @@
-import { canonicalize } from "../canonical-json.mjs";
+import { canonicalize, digestOfBytes } from "../canonical-json.mjs";
 import { MANDATORY_PACK_IDS } from "../compiler.mjs";
 import { implementedBuiltinValidatorIds } from "../builtin-validators.mjs";
 import { planCheckValidatorId } from "../census.mjs";
+import { readAuthorityBlob } from "../authority.mjs";
+import { verifyActivationPair } from "../activation.mjs";
 
 // orphan-closure-verify@1 — PROMOTION_FINALIZATION.
 // Enforces the no-orphan admission law over the TARGET's mechanism registry
@@ -32,8 +34,44 @@ export function minimumLivenessOf(check) {
   return "INTEGRATED";
 }
 
+// Loads a hash-bound activation evidence file from the trusted base.
+function loadActivationFile(repoDir, baseCommit, path, expectedDigest) {
+  const blob = readAuthorityBlob(repoDir, baseCommit, path);
+  if (!blob.ok) return null;
+  if (digestOfBytes(blob.bytes) !== expectedDigest) return null;
+  return blob.bytes;
+}
+
+// Liveness above LANDED_ONLY is never self-asserted: it requires verified
+// activation-pair evidence, hash-bound to the trusted base.
+function verifyMechanismActivation({ repoDir, baseCommit, mechanism }) {
+  if (mechanism.activationEvidence === null) {
+    return { ok: false, message: `mechanism ${mechanism.mechanismId} claims ${mechanism.status} without activation evidence` };
+  }
+  const files = {};
+  for (const [side, ref] of Object.entries(mechanism.activationEvidence)) {
+    const receipt = loadActivationFile(repoDir, baseCommit, ref.receiptPath, ref.receiptDigest);
+    const plan = loadActivationFile(repoDir, baseCommit, ref.planPath, ref.planDigest);
+    if (!receipt || !plan) {
+      return { ok: false, message: `mechanism ${mechanism.mechanismId} ${side} activation evidence is missing or does not match its pinned digest` };
+    }
+    files[side] = { receipt, plan };
+  }
+  const pair = verifyActivationPair({
+    conformingReceiptBytes: files.conforming.receipt,
+    conformingPlanBytes: files.conforming.plan,
+    plantedReceiptBytes: files.negative.receipt,
+    plantedPlanBytes: files.negative.plan,
+    checkId: mechanism.mechanismId
+  });
+  if (!pair.ok) {
+    return { ok: false, message: pair.errors.map((e) => e.message).join("; ") };
+  }
+  return { ok: true };
+}
+
 export function orphanClosureVerify(context) {
-  const { plan, mechanismRegistry, priorResults, evidence, check } = context;
+  const { repoDir, workContract, plan, mechanismRegistry, priorResults, evidence, check } = context;
   if (!mechanismRegistry) {
     return {
       outcome: "INFRA_FAILURE",
@@ -97,6 +135,20 @@ export function orphanClosureVerify(context) {
     if (LIVENESS_ORDER.indexOf(mechanism.status) < minimumIndex) {
       reasonCodes.add("LIVENESS_BELOW_THRESHOLD");
       findings.push({ mechanismId: mechanism.mechanismId, class: "LIVENESS_BELOW_THRESHOLD", status: mechanism.status });
+    }
+    // Any status above LANDED_ONLY must be backed by verified, hash-bound
+    // activation-pair evidence: a permanently passing validator cannot claim
+    // integration on the strength of a fixture description.
+    if (mechanism.status !== "LANDED_ONLY") {
+      const activation = verifyMechanismActivation({
+        repoDir,
+        baseCommit: workContract.target.baseCommit,
+        mechanism
+      });
+      if (!activation.ok) {
+        reasonCodes.add("ACTIVATION_EVIDENCE_INVALID");
+        findings.push({ mechanismId: mechanism.mechanismId, class: "ACTIVATION_EVIDENCE_INVALID", message: activation.message });
+      }
     }
   }
 

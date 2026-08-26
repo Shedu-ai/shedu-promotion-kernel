@@ -164,7 +164,7 @@ function gatePack() {
 }
 
 // The exact validator identity the plan will carry for gate-check.
-import { digestOfCanonical } from "../src/canonical-json.mjs";
+import { digestOfBytes, digestOfCanonical } from "../src/canonical-json.mjs";
 const GATE_VALIDATOR_ID = `target:${digestOfCanonical(["node", "-e", "process.exit(0)"])}`;
 
 function gateMechanism(overrides = {}) {
@@ -180,17 +180,27 @@ function gateMechanism(overrides = {}) {
     effect: "BLOCKING",
     resultConsumer: "DISPOSITION_REDUCER",
     evidenceSink: "evidence-index",
+    activationEvidence: null,
     negativeFixtures: [{ fixtureId: "planted-gate-failure", description: "a failing gate blocks the run" }],
     status: "INTEGRATED",
     ...overrides
   };
 }
 
-function orphanClosureTarget(mechanisms, { includeGatePack = true } = {}) {
+// The kernel orphan pack with a target-chosen liveness minimum: registration
+// and dispatch mechanics are isolated from the activation-evidence burden by
+// running LANDED_ONLY mechanisms under a landed-only minimum.
+function orphanPack(minimum = "integrated") {
+  const pack = kernelSelectablePack("orphan-closure");
+  pack.checks[0].inputs = pack.checks[0].inputs
+    .filter((i) => !i.startsWith("liveness-minimum."))
+    .concat([`liveness-minimum.${minimum}`]);
+  return pack;
+}
+
+function orphanClosureTarget(mechanisms, { includeGatePack = true, minimum = "landed-only" } = {}) {
   return buildTargetRepo({
-    targetPacks: includeGatePack
-      ? [gatePack(), kernelSelectablePack("orphan-closure")]
-      : [kernelSelectablePack("orphan-closure")],
+    targetPacks: includeGatePack ? [gatePack(), orphanPack(minimum)] : [orphanPack(minimum)],
     mechanismRegistry: { schemaVersion: "mechanism-registry@1", mechanisms }
   });
 }
@@ -201,14 +211,14 @@ function conformingCandidate(target) {
 }
 
 test("a fully closed target registry passes orphan closure", () => {
-  const target = orphanClosureTarget([gateMechanism()]);
+  const target = orphanClosureTarget([gateMechanism({ status: "LANDED_ONLY" })]);
   const outcome = evaluate(target, conformingCandidate(target));
   assert.equal(outcome.receipt.disposition, "PROMOTABLE", JSON.stringify(outcome.receipt.reasonCodes));
 });
 
 test("a registered mechanism the plan never dispatches blocks", () => {
   const target = orphanClosureTarget(
-    [gateMechanism({ mechanismId: "phantom-check", producer: "nowhere" })],
+    [gateMechanism({ mechanismId: "phantom-check", producer: "nowhere", status: "LANDED_ONLY" })],
     { includeGatePack: false }
   );
   const outcome = evaluate(target, conformingCandidate(target));
@@ -224,17 +234,121 @@ test("a dispatched target blocking check with no registry row blocks", () => {
 });
 
 test("validator impersonation in the registry blocks", () => {
-  const target = orphanClosureTarget([gateMechanism({ validatorId: "scope-boundary-classify@1" })]);
+  const target = orphanClosureTarget([gateMechanism({ validatorId: "scope-boundary-classify@1", status: "LANDED_ONLY" })]);
   const outcome = evaluate(target, conformingCandidate(target));
   assert.equal(outcome.receipt.disposition, "BLOCKED");
   assert.ok(outcome.receipt.reasonCodes.includes("ORPHAN_IMPLEMENTED_NOT_DISPATCHED"));
 });
 
 test("a mechanism below the configured liveness minimum blocks", () => {
-  const target = orphanClosureTarget([gateMechanism({ status: "LANDED_ONLY" })]);
+  const target = orphanClosureTarget([gateMechanism({ status: "LANDED_ONLY" })], { minimum: "integrated" });
   const outcome = evaluate(target, conformingCandidate(target));
   assert.equal(outcome.receipt.disposition, "BLOCKED");
   assert.ok(outcome.receipt.reasonCodes.includes("LIVENESS_BELOW_THRESHOLD"));
+});
+
+test("a status above LANDED_ONLY without activation evidence blocks: liveness is never self-asserted", () => {
+  const target = orphanClosureTarget([gateMechanism({ status: "INTEGRATED" })]);
+  const outcome = evaluate(target, conformingCandidate(target));
+  assert.equal(outcome.receipt.disposition, "BLOCKED");
+  assert.ok(outcome.receipt.reasonCodes.includes("ACTIVATION_EVIDENCE_INVALID"));
+});
+
+test("forged activation-evidence digests block", () => {
+  const bogus = {
+    receiptPath: "governance/receipt.json",
+    receiptDigest: `sha256:${"a".repeat(64)}`,
+    planPath: "governance/plan.json",
+    planDigest: `sha256:${"b".repeat(64)}`
+  };
+  const target = orphanClosureTarget([
+    gateMechanism({ status: "INTEGRATED", activationEvidence: { negative: bogus, conforming: bogus } })
+  ]);
+  const outcome = evaluate(target, conformingCandidate(target));
+  assert.equal(outcome.receipt.disposition, "BLOCKED");
+  assert.ok(outcome.receipt.reasonCodes.includes("ACTIVATION_EVIDENCE_INVALID"));
+});
+
+// Full activation-evidence lifecycle: real prior receipts, committed at
+// base and hash-bound, entitle INTEGRATED status; a mismatched pair does not.
+test("verified activation-pair evidence entitles INTEGRATED status; a forged pair does not", () => {
+  // Phase 1: generate genuine prior receipts with a marker-driven gate and
+  // NO orphan-closure enforcement.
+  const markerGate = {
+    ...gatePack(),
+    checks: [
+      {
+        ...gatePack().checks[0],
+        validator: {
+          kind: "TARGET_COMMAND",
+          argv: [
+            "node",
+            "-e",
+            'process.exit(require("node:fs").existsSync(require("node:path").join(process.env.KERNEL_CANDIDATE_DIR,"src","gate.marker"))?1:0)'
+          ]
+        }
+      }
+    ]
+  };
+  const markerValidatorId = `target:${digestOfCanonical(markerGate.checks[0].validator.argv)}`;
+  const history = buildTargetRepo({ targetPacks: [markerGate] });
+  const conformingRun = evaluate(history, conformingCandidate(history));
+  assert.equal(conformingRun.receipt.disposition, "PROMOTABLE", JSON.stringify(conformingRun.receipt.reasonCodes));
+  writeRepoFile(history.repoDir, "src/gate.marker", "planted\n");
+  const plantedRun = evaluate(history, commitAll(history.repoDir, "planted gate failure"));
+  assert.equal(plantedRun.receipt.disposition, "BLOCKED");
+
+  // Phase 2: commit the evidence into the repo and register the mechanism as
+  // INTEGRATED with hash-bound refs; evaluate a fresh conforming candidate
+  // under orphan-closure with an integrated minimum.
+  const files = {
+    "governance/activation/conforming-receipt.json": conformingRun.receiptBytes,
+    "governance/activation/conforming-plan.json": Buffer.from(JSON.stringify(conformingRun.plan), "utf8"),
+    "governance/activation/planted-receipt.json": plantedRun.receiptBytes,
+    "governance/activation/planted-plan.json": Buffer.from(JSON.stringify(plantedRun.plan), "utf8")
+  };
+  const refFor = (receiptPath, planPath) => ({
+    receiptPath,
+    receiptDigest: digestOfBytes(files[receiptPath]),
+    planPath,
+    planDigest: digestOfBytes(files[planPath])
+  });
+  const evidence = {
+    conforming: refFor("governance/activation/conforming-receipt.json", "governance/activation/conforming-plan.json"),
+    negative: refFor("governance/activation/planted-receipt.json", "governance/activation/planted-plan.json")
+  };
+  const target = buildTargetRepo({
+    targetPacks: [markerGate, orphanPack("integrated")],
+    extraBaseFiles: Object.fromEntries(Object.entries(files).map(([p, b]) => [p, b])),
+    mechanismRegistry: {
+      schemaVersion: "mechanism-registry@1",
+      mechanisms: [
+        gateMechanism({ validatorId: markerValidatorId, status: "INTEGRATED", activationEvidence: evidence })
+      ]
+    }
+  });
+  const outcome = evaluate(target, conformingCandidate(target));
+  assert.equal(outcome.receipt.disposition, "PROMOTABLE", JSON.stringify(outcome.receipt.reasonCodes));
+
+  // Hostile: the conforming receipt presented as the negative side cannot
+  // prove activation.
+  const swapped = buildTargetRepo({
+    targetPacks: [markerGate, orphanPack("integrated")],
+    extraBaseFiles: Object.fromEntries(Object.entries(files).map(([p, b]) => [p, b])),
+    mechanismRegistry: {
+      schemaVersion: "mechanism-registry@1",
+      mechanisms: [
+        gateMechanism({
+          validatorId: markerValidatorId,
+          status: "INTEGRATED",
+          activationEvidence: { conforming: evidence.conforming, negative: evidence.conforming }
+        })
+      ]
+    }
+  });
+  const swappedOutcome = evaluate(swapped, conformingCandidate(swapped));
+  assert.equal(swappedOutcome.receipt.disposition, "BLOCKED");
+  assert.ok(swappedOutcome.receipt.reasonCodes.includes("ACTIVATION_EVIDENCE_INVALID"));
 });
 
 // ---------------------------------------------------------------------------

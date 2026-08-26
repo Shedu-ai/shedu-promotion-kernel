@@ -69,6 +69,10 @@ export function reduceDisposition({ plan, planDigest, results }) {
       } else if (result.outcome === "INFRA_FAILURE") {
         blockingReasons.add("INFRASTRUCTURE_FAILURE");
         for (const code of result.reasonCodes) blockingReasons.add(code);
+      } else if (result.outcome === "SKIPPED") {
+        // A skipped required check is explicit non-success: fail closed.
+        blockingReasons.add("CHECK_SKIPPED");
+        for (const code of result.reasonCodes) blockingReasons.add(code);
       }
     } else {
       // ADVISORY routed to the reducer: consumed and retained, never blocking.

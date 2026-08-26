@@ -56,7 +56,18 @@ export function evaluationDigestOf({ planDigest, results, disposition, reasonCod
   return digestOfCanonical({ planDigest, results: stripped, disposition, reasonCodes });
 }
 
-export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
+// Checks whose blocking failure is an identity, containment, or
+// evidence-integrity failure: the run halts immediately and every remaining
+// check receives an explicit SKIPPED non-success record. Admission-phase
+// blocking failures (authority) halt as well.
+const INTEGRITY_HALT_CHECK_IDS = new Set([
+  "candidate-identity-verify",
+  "scope-boundary-classify",
+  "candidate-tree-stability",
+  "evidence-binding-index"
+]);
+
+export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks = null }) {
   const failure = (reasonCode, errors) => ({ ok: false, reasonCode, errors });
 
   const contract = validateDocument("work-contract@1", contractBytes);
@@ -144,6 +155,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
   const evidenceRootDir = join(outDir, "evidence");
   const evidence = createEvidenceIndex({
     rootDir: evidenceRootDir,
+    maxTotalBytes: workContract.resourceCeilings.maxArtifactBytes,
     binding: {
       repositoryId: plan.repositoryId,
       baseCommit: plan.baseCommit,
@@ -156,17 +168,45 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
   });
 
   const startedAt = nowIso();
+  // Evaluation-wide deadline: maxRuntimeSeconds bounds the whole run, and
+  // per-command timeouts never exceed the remaining budget.
+  const deadlineMs = Date.now() + workContract.maxRuntimeSeconds * 1000;
+  const remainingSeconds = () => Math.max(1, Math.ceil((deadlineMs - Date.now()) / 1000));
   const results = [];
   let changedFiles = [];
-  let halted = false;
+  let haltCode = null;
+  let lastPhase = null;
 
   const candidateCommittish = committishForCandidate(repoDir, workContract.target.candidate);
   const baseWorktree = materializeWorktree(repoDir, baseCommit);
   const candidateWorktree = materializeWorktree(repoDir, candidateCommittish);
   try {
     for (const check of plan.checks) {
-      if (halted) break;
+      if (lastPhase !== null && check.phase !== lastPhase) {
+        plantHooks?.afterPhase?.(lastPhase, { candidateDir: candidateWorktree.dir, evidenceRootDir });
+      }
+      lastPhase = check.phase;
       const checkStarted = nowIso();
+
+      if (haltCode === null && Date.now() >= deadlineMs) haltCode = "DEADLINE_EXCEEDED";
+      if (haltCode !== null) {
+        // Explicit non-success record for skipped required work.
+        results.push({
+          schemaVersion: "check-result@1",
+          checkId: check.checkId,
+          packId: check.packId,
+          planDigest,
+          candidateId: plan.candidate.id,
+          effect: check.effect,
+          outcome: "SKIPPED",
+          reasonCodes: [haltCode],
+          evidence: [],
+          startedAt: checkStarted,
+          completedAt: checkStarted
+        });
+        continue;
+      }
+
       let partial;
       try {
         if (check.validator.kind === "BUILTIN") {
@@ -197,8 +237,9 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
               KERNEL_BASE_DIR: baseWorktree.dir,
               KERNEL_CANDIDATE_DIR: candidateWorktree.dir
             },
-            timeoutSeconds: Math.min(check.timeoutSeconds, workContract.maxRuntimeSeconds),
-            maxOutputBytes: workContract.resourceCeilings.maxOutputBytes
+            timeoutSeconds: Math.min(check.timeoutSeconds, remainingSeconds()),
+            maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
+            maxProcesses: workContract.resourceCeilings.maxProcesses
           });
           const refs = [
             evidence.put({
@@ -254,10 +295,15 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
       if (check.checkId === "scope-boundary-classify" && partial.details?.changedFiles) {
         changedFiles = partial.details.changedFiles;
       }
-      // Identity/containment failures are terminal: stop immediately rather
-      // than executing validation against an unverified candidate.
-      if (check.phase === "CONTRACT_ADMISSION" && check.effect === "BLOCKING" && result.outcome !== "PASS") {
-        halted = true;
+      // Identity, containment, authority (admission), and evidence-integrity
+      // failures are terminal: halt immediately; the remaining checks receive
+      // explicit SKIPPED records above.
+      if (
+        result.outcome !== "PASS" &&
+        check.effect === "BLOCKING" &&
+        (check.phase === "CONTRACT_ADMISSION" || INTEGRITY_HALT_CHECK_IDS.has(check.checkId))
+      ) {
+        haltCode = "CHECK_SKIPPED";
       }
     }
   } finally {
@@ -273,14 +319,20 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
   // matches its anchored bytes, and the finalized index digest is bound into
   // the receipt below.
   const checksById = new Map(plan.checks.map((c) => [c.checkId, c]));
-  for (const result of results) {
-    evidence.put({
-      artifactId: `result-${result.checkId}`,
-      checkId: result.checkId,
-      validatorId: planCheckValidatorId(checksById.get(result.checkId)),
-      bytes: Buffer.from(canonicalize(result), "utf8"),
-      mediaType: "application/json"
-    });
+  try {
+    for (const result of results) {
+      evidence.put({
+        artifactId: `result-${result.checkId}`,
+        checkId: result.checkId,
+        validatorId: planCheckValidatorId(checksById.get(result.checkId)),
+        bytes: Buffer.from(canonicalize(result), "utf8"),
+        mediaType: "application/json"
+      });
+    }
+  } catch (error) {
+    return failure("DOCUMENT_BOUNDS_EXCEEDED", [
+      { reasonCode: "DOCUMENT_BOUNDS_EXCEEDED", message: `evidence anchoring failed: ${String(error)}` }
+    ]);
   }
   const finalizedEvidence = evidence.finalize();
 
