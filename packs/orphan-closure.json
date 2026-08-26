@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "orphan-closure",
+  "version": "1.0.0",
+  "description": "Target-selectable pack: enforces the no-orphan admission law over the target's mechanism registry — registration, implementation, dispatch, emission, declared negative fixtures, and the configured operational-liveness minimum.",
+  "phases": ["PROMOTION_FINALIZATION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "orphan-closure-verify",
+      "phase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "orphan-closure-verify@1" },
+      "inputs": ["mechanism-registry", "compiled-plan", "check-results", "liveness-minimum.integrated"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

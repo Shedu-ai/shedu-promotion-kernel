@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "prior-art-admission",
+  "version": "1.0.0",
+  "description": "Target-selectable pack: proves the declared prior-art search ran against the declared capability index and blocks unacknowledged doNotRebuild collisions. Ambiguity defers to external review; the kernel makes no semantic ruling.",
+  "phases": ["CONTRACT_ADMISSION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "prior-art-admission",
+      "phase": "CONTRACT_ADMISSION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "prior-art-admission@1" },
+      "inputs": ["capability-index", "prior-art-query", "changed-paths"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

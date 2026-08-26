@@ -14,6 +14,8 @@
     "validationCommands",
     "policyProfile",
     "capabilityIndex",
+    "priorArtQuery",
+    "mechanismRegistry",
     "artifactRoot",
     "maxRuntimeSeconds",
     "resourceCeilings",
@@ -83,6 +85,34 @@
       }
     },
     "capabilityIndex": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "digest"],
+          "properties": {
+            "path": {"$ref": "#/$defs/relativePath"},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "priorArtQuery": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "digest"],
+          "properties": {
+            "path": {"$ref": "#/$defs/relativePath"},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "mechanismRegistry": {
       "oneOf": [
         {"type": "null"},
         {

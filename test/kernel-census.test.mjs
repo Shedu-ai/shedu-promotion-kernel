@@ -13,7 +13,7 @@ import {
   registeredFromRegistry,
   runOrphanCensus
 } from "../src/census.mjs";
-import { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } from "./fixtures.mjs";
+import { buildTargetRepo, commitAll, contractBytesOf, kernelSelectablePack, writeRepoFile } from "./fixtures.mjs";
 
 function loadKernelRegistry() {
   const bytes = readFileSync(new URL("../registry/kernel-mechanisms.json", import.meta.url));
@@ -23,7 +23,24 @@ function loadKernelRegistry() {
 }
 
 function runKernelEvaluation() {
-  const target = buildTargetRepo();
+  // Full kernel surface: mandatory packs (injected) plus both kernel-shipped
+  // selectable packs, vendored into the target with minimal authority docs.
+  const target = buildTargetRepo({
+    targetPacks: [kernelSelectablePack("prior-art-admission"), kernelSelectablePack("orphan-closure")],
+    capabilityIndex: {
+      schemaVersion: "capability-index@1",
+      repositoryId: "example-repo",
+      entries: [],
+      generatedSurface: []
+    },
+    priorArtQuery: {
+      schemaVersion: "prior-art-query@1",
+      objectiveId: "example-objective",
+      queries: [{ queryId: "baseline", terms: ["feature"] }],
+      declaredCollisions: []
+    },
+    mechanismRegistry: { schemaVersion: "mechanism-registry@1", mechanisms: [] }
+  });
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
   const candidate = commitAll(target.repoDir, "conforming feature");
   const outcome = evaluateCandidate({
@@ -63,17 +80,17 @@ test("kernel self-census over a real run: all five stages equal with ZERO exclus
   assert.equal(census.complete, true, JSON.stringify(census, null, 2));
   assert.deepEqual(census.exclusions, []);
   assert.deepEqual(census.stageCounts, {
-    registered: 5,
-    implemented: 5,
-    dispatched: 5,
-    emitted: 5,
-    consumed: 5
+    registered: 7,
+    implemented: 7,
+    dispatched: 7,
+    emitted: 7,
+    consumed: 7
   });
 });
 
 test("every kernel mechanism is INTEGRATED with declared negative fixtures", () => {
   const registry = loadKernelRegistry();
-  assert.equal(registry.mechanisms.length, 5);
+  assert.equal(registry.mechanisms.length, 7);
   for (const mechanism of registry.mechanisms) {
     assert.equal(mechanism.status, "INTEGRATED", mechanism.mechanismId);
     assert.ok(mechanism.negativeFixtures.length >= 1, mechanism.mechanismId);

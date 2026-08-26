@@ -91,6 +91,32 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
     capabilityIndex = loaded.value;
   }
 
+  let priorArtQuery = null;
+  if (workContract.priorArtQuery !== null) {
+    const loaded = loadAuthorityDocument({
+      repoDir,
+      baseCommit,
+      path: workContract.priorArtQuery.path,
+      expectedDigest: workContract.priorArtQuery.digest,
+      kind: "prior-art-query@1"
+    });
+    if (!loaded.ok) return failure(loaded.reasonCode, loaded.errors ?? [loaded]);
+    priorArtQuery = loaded.value;
+  }
+
+  let mechanismRegistry = null;
+  if (workContract.mechanismRegistry !== null) {
+    const loaded = loadAuthorityDocument({
+      repoDir,
+      baseCommit,
+      path: workContract.mechanismRegistry.path,
+      expectedDigest: workContract.mechanismRegistry.digest,
+      kind: "mechanism-registry@1"
+    });
+    if (!loaded.ok) return failure(loaded.reasonCode, loaded.errors ?? [loaded]);
+    mechanismRegistry = loaded.value;
+  }
+
   const packs = [];
   for (const selection of profile.value.packs) {
     const pack = loadAuthorityDocument({
@@ -156,7 +182,9 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
             priorResults: [...results],
             evidence,
             evidenceRootDir,
-            capabilityIndex
+            capabilityIndex,
+            priorArtQuery,
+            mechanismRegistry
           });
         } else {
           const execution = runTargetCommand({

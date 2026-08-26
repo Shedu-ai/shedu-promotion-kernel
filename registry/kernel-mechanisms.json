@@ -92,6 +92,45 @@
         { "fixtureId": "missing-evidence", "description": "an unindexed required result FIREs and blocks" }
       ],
       "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "prior-art-admission",
+      "validatorId": "prior-art-admission@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/prior-art.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "capability-index@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "CONTRACT_ADMISSION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "unacknowledged-collision", "description": "an unacknowledged doNotRebuild collision FIREs and blocks" },
+        { "fixtureId": "unauthorized-follow-up", "description": "a follow-up outside the entry's allowed set FIREs and blocks" },
+        { "fixtureId": "ambiguous-collision", "description": "a REVIEW_REQUESTED collision yields the REVIEW_REQUIRED admission result and blocks" }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "orphan-closure-verify",
+      "validatorId": "orphan-closure-verify@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/orphan-closure.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "mechanism-registry@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "registered-not-dispatched", "description": "a registered mechanism the plan never dispatches FIREs and blocks" },
+        { "fixtureId": "dispatched-not-registered", "description": "a dispatched target blocking check with no registry row FIREs and blocks" },
+        { "fixtureId": "validator-impersonation", "description": "a registry row naming a different validator than dispatched FIREs and blocks" },
+        { "fixtureId": "liveness-below-threshold", "description": "a mechanism below the configured minimum status FIREs and blocks" }
+      ],
+      "status": "INTEGRATED"
     }
   ]
 }

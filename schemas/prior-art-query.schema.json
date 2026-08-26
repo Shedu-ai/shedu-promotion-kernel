@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/prior-art-query.schema.json",
+  "title": "prior-art-query@1",
+  "description": "Pre-candidate prior-art query manifest: the declared search terms and the authorized collision resolutions. Authored before candidate work and digest-bound in the work contract; the candidate cannot amend it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "objectiveId", "queries", "declaredCollisions"],
+  "properties": {
+    "schemaVersion": {"const": "prior-art-query@1"},
+    "objectiveId": {"$ref": "#/$defs/kebabId"},
+    "queries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["queryId", "terms"],
+        "properties": {
+          "queryId": {"$ref": "#/$defs/kebabId"},
+          "terms": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          }
+        }
+      }
+    },
+    "declaredCollisions": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capabilityId", "resolution", "followUpId", "receiptRef"],
+        "properties": {
+          "capabilityId": {"$ref": "#/$defs/versionedId"},
+          "resolution": {"enum": ["ALLOWED_FOLLOW_UP", "EXCEPTION_RECEIPT", "REVIEW_REQUESTED"]},
+          "followUpId": {
+            "oneOf": [{"type": "null"}, {"$ref": "#/$defs/kebabId"}]
+          },
+          "receiptRef": {
+            "oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 256}]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "versionedId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$", "maxLength": 128}
+  }
+}

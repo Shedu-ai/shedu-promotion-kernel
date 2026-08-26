@@ -14,7 +14,8 @@ const SCHEMA_FILES = {
   "check-result@1": "check-result.schema.json",
   "orphan-census@1": "orphan-census.schema.json",
   "command-report@1": "command-report.schema.json",
-  "evidence-index@1": "evidence-index.schema.json"
+  "evidence-index@1": "evidence-index.schema.json",
+  "prior-art-query@1": "prior-art-query.schema.json"
 };
 
 const schemas = new Map(
@@ -162,8 +163,10 @@ const SEMANTIC = {
       }
     }
     errors.push(...pathErrors([doc.policyProfile.path], "policyProfile.path"));
-    if (doc.capabilityIndex !== null) {
-      errors.push(...pathErrors([doc.capabilityIndex.path], "capabilityIndex.path"));
+    for (const field of ["capabilityIndex", "priorArtQuery", "mechanismRegistry"]) {
+      if (doc[field] !== null) {
+        errors.push(...pathErrors([doc[field].path], `${field}.path`));
+      }
     }
     errors.push(...pathErrors([doc.artifactRoot], "artifactRoot", { allowDirPrefix: true }));
     for (const id of duplicateIds(doc.validationCommands.map((c) => c.commandId))) {
@@ -259,6 +262,25 @@ const SEMANTIC = {
 
   "check-result@1": (doc) => {
     return reasonCodeErrors(doc.reasonCodes, "reasonCodes");
+  },
+
+  "prior-art-query@1": (doc) => {
+    const errors = [];
+    for (const id of duplicateIds(doc.queries.map((q) => q.queryId))) {
+      errors.push(err("DUPLICATE_ENTRY_ID", `query ${id} is declared more than once`));
+    }
+    for (const id of duplicateIds(doc.declaredCollisions.map((c) => c.capabilityId))) {
+      errors.push(err("DUPLICATE_ENTRY_ID", `collision resolution for ${id} is declared more than once`));
+    }
+    for (const collision of doc.declaredCollisions) {
+      if (collision.resolution === "ALLOWED_FOLLOW_UP" && collision.followUpId === null) {
+        errors.push(err("SCHEMA_VIOLATION", `collision ${collision.capabilityId} declares ALLOWED_FOLLOW_UP without a followUpId`));
+      }
+      if (collision.resolution === "EXCEPTION_RECEIPT" && collision.receiptRef === null) {
+        errors.push(err("SCHEMA_VIOLATION", `collision ${collision.capabilityId} declares EXCEPTION_RECEIPT without a receiptRef`));
+      }
+    }
+    return errors;
   },
 
   "promotion-receipt@1": (doc) => {

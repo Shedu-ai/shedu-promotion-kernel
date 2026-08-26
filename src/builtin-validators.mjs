@@ -2,6 +2,8 @@ import { candidateIdentityVerify, candidateTreeStability } from "./validators/ca
 import { scopeBoundaryClassify } from "./validators/scope-boundary.mjs";
 import { validationPlanExecute } from "./validators/validation-plan.mjs";
 import { evidenceBindingIndex } from "./validators/evidence-binding.mjs";
+import { priorArtAdmission } from "./validators/prior-art.mjs";
+import { orphanClosureVerify } from "./validators/orphan-closure.mjs";
 
 // Closed registry of builtin validators. `implemented` is derived from the
 // presence of an executable `run` function — a registry row can never claim
@@ -39,6 +41,18 @@ const definitions = {
     outputSchemaId: "check-result@1",
     sourceFile: "validators/evidence-binding.mjs",
     run: evidenceBindingIndex
+  },
+  "prior-art-admission@1": {
+    packId: "prior-art-admission",
+    outputSchemaId: "check-result@1",
+    sourceFile: "validators/prior-art.mjs",
+    run: priorArtAdmission
+  },
+  "orphan-closure-verify@1": {
+    packId: "orphan-closure",
+    outputSchemaId: "check-result@1",
+    sourceFile: "validators/orphan-closure.mjs",
+    run: orphanClosureVerify
   }
 };
 

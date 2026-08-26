@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -70,6 +70,8 @@ export function makeContract(overrides = {}) {
     ],
     policyProfile: { profileId: "example-profile", path: "policy/profile.json", digest: ZERO_DIGEST },
     capabilityIndex: null,
+    priorArtQuery: null,
+    mechanismRegistry: null,
     artifactRoot: "artifacts/",
     maxRuntimeSeconds: 600,
     resourceCeilings: { maxOutputBytes: 1048576, maxArtifactBytes: 1048576, maxProcesses: 16 },
@@ -165,8 +167,16 @@ export function defaultTeamPack() {
   });
 }
 
-// A complete evaluatable target repository: base commit carrying the profile
-// and target packs, plus a contract factory bound to that base.
+// A kernel-shipped selectable pack, vendored into a target repository the
+// way a real target would: exact pack bytes copied from the kernel release.
+export function kernelSelectablePack(packId) {
+  const bytes = readFileSync(new URL(`../packs/${packId}.json`, import.meta.url), "utf8");
+  return JSON.parse(bytes);
+}
+
+// A complete evaluatable target repository: base commit carrying the profile,
+// target packs, and any prior-art / mechanism-registry authority documents,
+// plus a contract factory bound to that base.
 export function buildTargetRepo(options = {}) {
   const {
     scope = { allowed: ["src/"], readonly: ["docs/"], forbidden: ["policy/"] },
@@ -175,7 +185,10 @@ export function buildTargetRepo(options = {}) {
       { commandId: "noop-check", phase: "CANDIDATE_VALIDATION", argv: ["node", "-e", "process.exit(0)"] }
     ],
     extraBaseFiles = {},
-    profileOverrides = {}
+    profileOverrides = {},
+    capabilityIndex = null,
+    priorArtQuery = null,
+    mechanismRegistry = null
   } = options;
 
   const repoDir = makeGitRepo();
@@ -190,6 +203,16 @@ export function buildTargetRepo(options = {}) {
     writeRepoFile(repoDir, path, bytes);
     return { packId: value.packId, version: value.version, path, digest: digestOfBytes(Buffer.from(bytes, "utf8")) };
   });
+  const authorityRef = (doc, path) => {
+    if (doc === null) return null;
+    const bytes = `${JSON.stringify(doc)}\n`;
+    writeRepoFile(repoDir, path, bytes);
+    return { path, digest: digestOfBytes(Buffer.from(bytes, "utf8")) };
+  };
+  const capabilityIndexRef = authorityRef(capabilityIndex, "policy/capability-index.json");
+  const priorArtQueryRef = authorityRef(priorArtQuery, "policy/prior-art-query.json");
+  const mechanismRegistryRef = authorityRef(mechanismRegistry, "policy/mechanism-registry.json");
+
   const profile = makeProfile(packSelections, profileOverrides);
   const profileBytes = `${JSON.stringify(profile)}\n`;
   writeRepoFile(repoDir, "policy/profile.json", profileBytes);
@@ -205,6 +228,9 @@ export function buildTargetRepo(options = {}) {
         path: "policy/profile.json",
         digest: digestOfBytes(Buffer.from(profileBytes, "utf8"))
       },
+      capabilityIndex: capabilityIndexRef,
+      priorArtQuery: priorArtQueryRef,
+      mechanismRegistry: mechanismRegistryRef,
       ...overrides
     });
 
