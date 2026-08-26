@@ -37,7 +37,7 @@
     "digests": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workContract", "profile", "packs", "validators", "compiledPlan", "capabilityIndex"],
+      "required": ["workContract", "profile", "packs", "validators", "compiledPlan", "capabilityIndex", "evidenceIndex"],
       "properties": {
         "workContract": {"$ref": "#/$defs/digest"},
         "profile": {"$ref": "#/$defs/digest"},
@@ -71,6 +71,9 @@
         },
         "compiledPlan": {"$ref": "#/$defs/digest"},
         "capabilityIndex": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]
+        },
+        "evidenceIndex": {
           "oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]
         }
       }

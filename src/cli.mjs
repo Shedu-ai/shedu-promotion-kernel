@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
-import { compilePlan } from "./compiler.mjs";
+import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
+import { signReceipt, verifyReceipt } from "./receipt.mjs";
+import { runConformance } from "./conformance.mjs";
+import { canonicalize } from "./canonical-json.mjs";
 
-export const SUBJECT_PROBE = Object.freeze({
+const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
   subject: "shedu-promotion-kernel",
   implementationStatus: "FOUNDATION_ONLY",
@@ -19,6 +23,52 @@ export const SUBJECT_PROBE = Object.freeze({
   promotionEntrypointAvailable: false
 });
 
+export const EXPERIMENTAL_CAPABILITIES = Object.freeze([
+  "exact-argv@1",
+  "immutable-subject-identity@1",
+  "promotion-kernel-contract@1",
+  "policy-pack-compiler@1",
+  "mandatory-packs@1",
+  "disposition-reducer@1",
+  "target-command-runner@1",
+  "evidence-index@1",
+  "promotion-receipt@1",
+  "receipt-verification@1",
+  "orphan-census@1",
+  "prior-art-admission@1",
+  "orphan-closure@1"
+]);
+
+// The FOUNDATION_ONLY → EXPERIMENTAL transition is controlled by passing
+// conformance evidence, not an edit: the probe elevates only when the
+// committed status document is schema-valid, reports allPassed for exactly
+// this kernel release, and (being fully deterministic) is regenerable by
+// re-running the conformance matrix. Anything else fails safe to
+// FOUNDATION_ONLY.
+export function subjectProbe(statusBytes) {
+  if (statusBytes !== null && statusBytes !== undefined) {
+    const validated = validateDocument("conformance-status@1", statusBytes);
+    if (validated.ok && validated.value.allPassed === true && validated.value.kernelRelease === KERNEL_RELEASE) {
+      return {
+        schemaVersion: "harness-bench-subject-probe@1",
+        subject: "shedu-promotion-kernel",
+        implementationStatus: "EXPERIMENTAL",
+        capabilities: [...EXPERIMENTAL_CAPABILITIES],
+        promotionEntrypointAvailable: true
+      };
+    }
+  }
+  return { ...FOUNDATION_PROBE, capabilities: [...FOUNDATION_PROBE.capabilities] };
+}
+
+function committedStatusBytes() {
+  try {
+    return readFileSync(new URL("../conformance/status.json", import.meta.url));
+  } catch {
+    return null;
+  }
+}
+
 function emitError(reasonCode, errors) {
   const doc = { schemaVersion: "promotion-kernel-error@1", status: "BLOCKED", reasonCode };
   if (Array.isArray(errors) && errors.length > 0) {
@@ -28,19 +78,22 @@ function emitError(reasonCode, errors) {
   return 2;
 }
 
-function runCompile(argv) {
-  const usage = () =>
-    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: compile --contract <file> --repo <dir>" }]);
+function parseFlags(argv, allowed) {
   const flags = new Map();
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if ((flag !== "--contract" && flag !== "--repo") || value === undefined || flags.has(flag)) {
-      return usage();
-    }
+    if (!allowed.includes(flag) || value === undefined || flags.has(flag)) return null;
     flags.set(flag, value);
   }
-  if (!flags.has("--contract") || !flags.has("--repo")) return usage();
+  return flags;
+}
+
+function runCompile(argv) {
+  const usage = () =>
+    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: compile --contract <file> --repo <dir>" }]);
+  const flags = parseFlags(argv, ["--contract", "--repo"]);
+  if (!flags || !flags.has("--contract") || !flags.has("--repo")) return usage();
 
   let bytes;
   try {
@@ -107,21 +160,12 @@ function runCompile(argv) {
   return 0;
 }
 
-function parseFlags(argv, allowed) {
-  const flags = new Map();
-  for (let i = 0; i < argv.length; i += 2) {
-    const flag = argv[i];
-    const value = argv[i + 1];
-    if (!allowed.includes(flag) || value === undefined || flags.has(flag)) return null;
-    flags.set(flag, value);
-  }
-  return flags;
-}
-
 function runEvaluate(argv) {
   const usage = () =>
-    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir>" }]);
-  const flags = parseFlags(argv, ["--contract", "--repo", "--out"]);
+    emitError("CLI_USAGE", [
+      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>]" }
+    ]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
   let contractBytes;
   try {
@@ -137,23 +181,81 @@ function runEvaluate(argv) {
     outDir: flags.get("--out")
   });
   if (!outcome.ok) return emitError(outcome.reasonCode, outcome.errors);
-  process.stdout.write(outcome.receiptBytes);
+
+  let receiptBytes = outcome.receiptBytes;
+  if (flags.has("--sign-key")) {
+    let keyPem;
+    try {
+      keyPem = readFileSync(flags.get("--sign-key"), "utf8");
+    } catch {
+      return emitError("SIGNATURE_INVALID", [
+        { reasonCode: "SIGNATURE_INVALID", message: `cannot read signing key ${flags.get("--sign-key")}` }
+      ]);
+    }
+    const signed = signReceipt(outcome.receipt, keyPem);
+    receiptBytes = Buffer.from(canonicalize(signed), "utf8");
+    writeFileSync(join(flags.get("--out"), "receipt.json"), receiptBytes);
+  }
+  process.stdout.write(receiptBytes);
   process.stdout.write("\n");
   return 0;
 }
 
+function runVerifyReceipt(argv) {
+  const usage = () =>
+    emitError("CLI_USAGE", [
+      { reasonCode: "CLI_USAGE", message: "usage: verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]" }
+    ]);
+  const flags = parseFlags(argv, ["--receipt", "--plan", "--evidence", "--public-key"]);
+  if (!flags || !flags.has("--receipt") || !flags.has("--plan")) return usage();
+  let receiptBytes;
+  let planBytes;
+  try {
+    receiptBytes = readFileSync(flags.get("--receipt"));
+    planBytes = readFileSync(flags.get("--plan"));
+  } catch {
+    return emitError("AUTHORITY_OBJECT_MISSING", [
+      { reasonCode: "AUTHORITY_OBJECT_MISSING", message: "cannot read receipt or plan file" }
+    ]);
+  }
+  const verification = verifyReceipt({
+    receiptBytes,
+    planBytes,
+    evidenceDir: flags.get("--evidence") ?? null,
+    expectedPublicKey: flags.get("--public-key") ?? null
+  });
+  process.stdout.write(
+    `${JSON.stringify({
+      schemaVersion: "receipt-verification@1",
+      ok: verification.ok,
+      disposition: verification.disposition,
+      errors: verification.errors
+    })}\n`
+  );
+  return verification.ok ? 0 : 2;
+}
+
+function runConformanceCommand(argv) {
+  const usage = () =>
+    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: conformance --out <dir>" }]);
+  const flags = parseFlags(argv, ["--out"]);
+  if (!flags || !flags.has("--out")) return usage();
+  const { status, statusBytes } = runConformance({ outDir: flags.get("--out") });
+  process.stdout.write(statusBytes);
+  process.stdout.write("\n");
+  return status.allPassed ? 0 : 2;
+}
+
 export function main(argv = process.argv.slice(2)) {
   if (argv.length === 1 && argv[0] === "--subject-probe") {
-    process.stdout.write(`${JSON.stringify(SUBJECT_PROBE)}\n`);
+    process.stdout.write(`${JSON.stringify(subjectProbe(committedStatusBytes()))}\n`);
     return 0;
   }
 
-  if (argv[0] === "compile") {
-    return runCompile(argv.slice(1));
-  }
-  if (argv[0] === "evaluate") {
-    return runEvaluate(argv.slice(1));
-  }
+  if (argv[0] === "compile") return runCompile(argv.slice(1));
+  if (argv[0] === "evaluate") return runEvaluate(argv.slice(1));
+  if (argv[0] === "verify-receipt") return runVerifyReceipt(argv.slice(1));
+  if (argv[0] === "conformance") return runConformanceCommand(argv.slice(1));
 
   process.stderr.write(`${JSON.stringify({
     schemaVersion: "promotion-kernel-error@1",

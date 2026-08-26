@@ -1,6 +1,6 @@
 # Brief — policy-pack-promotion-kernel-v1
 
-**Status:** BRIEF AUTHORED · implementation not started · 2026-08-26.
+**Status:** IMPLEMENTED · steps 1–6 complete · subject EXPERIMENTAL, gated by regenerable conformance evidence (`conformance/status.json`, sha256 `195446abe23fdfac8be2cbf4192465ee63dc51ff1e119077e4160d2733a57a67`) · closeout: [`closeout-policy-pack-promotion-kernel-v1.md`](closeout-policy-pack-promotion-kernel-v1.md) · 2026-08-26.
 
 ## 1. Objective
 

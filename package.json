@@ -1,6 +1,6 @@
 {
   "name": "@shedu/promotion-kernel",
-  "version": "0.0.0-foundation",
+  "version": "0.1.0-experimental",
   "description": "Model-independent, evidence-bound promotion kernel for AI-generated software changes",
   "type": "module",
   "license": "Apache-2.0",

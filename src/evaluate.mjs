@@ -267,6 +267,21 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
 
   const reduced = reduceDisposition({ plan, planDigest, results });
   const completedAt = nowIso();
+
+  // Anchor every check result in the content-addressed store before the
+  // index is finalized: a receipt result rewritten after the fact no longer
+  // matches its anchored bytes, and the finalized index digest is bound into
+  // the receipt below.
+  const checksById = new Map(plan.checks.map((c) => [c.checkId, c]));
+  for (const result of results) {
+    evidence.put({
+      artifactId: `result-${result.checkId}`,
+      checkId: result.checkId,
+      validatorId: planCheckValidatorId(checksById.get(result.checkId)),
+      bytes: Buffer.from(canonicalize(result), "utf8"),
+      mediaType: "application/json"
+    });
+  }
   const finalizedEvidence = evidence.finalize();
 
   const validatorDigests = new Map();
@@ -295,7 +310,8 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir }) {
         .map(([validatorId, digest]) => ({ validatorId, digest }))
         .sort((a, b) => (a.validatorId < b.validatorId ? -1 : 1)),
       compiledPlan: planDigest,
-      capabilityIndex: capabilityIndexDigest
+      capabilityIndex: capabilityIndexDigest,
+      evidenceIndex: finalizedEvidence.indexDigest
     },
     checkResults: results,
     changedFiles,

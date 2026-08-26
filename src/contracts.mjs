@@ -15,7 +15,8 @@ const SCHEMA_FILES = {
   "orphan-census@1": "orphan-census.schema.json",
   "command-report@1": "command-report.schema.json",
   "evidence-index@1": "evidence-index.schema.json",
-  "prior-art-query@1": "prior-art-query.schema.json"
+  "prior-art-query@1": "prior-art-query.schema.json",
+  "conformance-status@1": "conformance-status.schema.json"
 };
 
 const schemas = new Map(

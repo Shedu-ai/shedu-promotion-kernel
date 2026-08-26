@@ -2,7 +2,7 @@
 
 Shedu Promotion Kernel is a model-independent, evidence-bound gate for AI-generated software changes. Its job is deliberately narrow: decide whether an immutable candidate may be promoted into a target repository.
 
-> **Status: FOUNDATION ONLY.** The public repository establishes the product boundary, machine-readable subject probe, and Harness Bench connection contract. It does not yet authorize or promote changes.
+> **Status: EXPERIMENTAL.** The promotion pipeline — compiler, mandatory integrity packs, isolated exact-argv execution, disposition reducer, content-addressed evidence, and offline-verifiable receipts — is implemented and gated by regenerable conformance evidence in [`conformance/status.json`](conformance/status.json). The subject probe reports `EXPERIMENTAL` only while that evidence validates for the current release; it is not a claim of production readiness or certification.
 
 ## Promotion path
 
@@ -21,13 +21,25 @@ Exploration, idea generation, brief/spec/prompt authoring, provider selection ex
 
 [`/.harness-bench/subject.json`](.harness-bench/subject.json) is the machine-readable connection contract. Harness Bench resolves the repository to an immutable commit, preserves each launch command as an argument array, invokes the probe, and records the exact subject identity before any experiment.
 
-The current probe is intentionally honest:
+The probe is evidence-gated:
 
 ```sh
 npm run subject:probe
 ```
 
-It reports `FOUNDATION_ONLY`. A scored or pilot run must reject that status until the promotion entrypoint and declared capabilities are implemented and verified.
+It reports `EXPERIMENTAL` only while the committed conformance status is schema-valid, fully passed, and pinned to the current kernel release; otherwise it falls back to `FOUNDATION_ONLY` with no promotion entrypoint.
+
+## CLI surfaces
+
+```sh
+node src/cli.mjs compile --contract <file> --repo <dir>
+node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>]
+node src/cli.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
+node src/cli.mjs conformance --out <dir>
+node src/cli.mjs --subject-probe
+```
+
+Each emits machine-readable JSON on stdout and machine errors on stderr.
 
 ## Development
 

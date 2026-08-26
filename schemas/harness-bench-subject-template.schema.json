@@ -44,6 +44,12 @@
         {"$ref": "#/$defs/argv"}
       ]
     },
+    "conformanceArgv": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/argv"}
+      ]
+    },
     "capabilities": {
       "type": "array",
       "minItems": 1,

@@ -252,7 +252,8 @@ test("check result and receipt schemas accept valid documents and reject unknown
       packs: [{ packId: "example-pack", version: "1.0.0", digest: ZERO_DIGEST }],
       validators: [],
       compiledPlan: ZERO_DIGEST,
-      capabilityIndex: null
+      capabilityIndex: null,
+      evidenceIndex: null
     },
     checkResults: [checkResult],
     changedFiles: [{ path: "src/index.mjs", changeKind: "MODIFIED", scopeClass: "ALLOWED" }],

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/conformance-status.schema.json",
+  "title": "conformance-status@1",
+  "description": "Deterministic summary of the zero-provider conformance matrix. Every field is reproducible by re-running the matrix, so the FOUNDATION_ONLY to EXPERIMENTAL transition is controlled by regenerable evidence, not prose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kernelRelease", "allPassed", "cases"],
+  "properties": {
+    "schemaVersion": {"const": "conformance-status@1"},
+    "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+    "allPassed": {"type": "boolean"},
+    "cases": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caseId", "conforming", "planted"],
+        "properties": {
+          "caseId": {"$ref": "#/$defs/kebabId"},
+          "conforming": {"$ref": "#/$defs/runSummary"},
+          "planted": {"$ref": "#/$defs/runSummary"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition", "planDigest", "evaluationDigest", "receiptVerified"],
+      "properties": {
+        "disposition": {"enum": ["PROMOTABLE", "BLOCKED"]},
+        "planDigest": {"$ref": "#/$defs/digest"},
+        "evaluationDigest": {"$ref": "#/$defs/digest"},
+        "receiptVerified": {"type": "boolean"}
+      }
+    }
+  }
+}
