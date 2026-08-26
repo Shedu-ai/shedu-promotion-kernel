@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/mechanism-registry.schema.json",
+  "title": "mechanism-registry@1",
+  "description": "Target-owned registry for the no-orphan admission law. Every mechanism declares its owner, producer, runtime consumer, schemas, activation phase, evidence sink, and at least one planted negative fixture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mechanisms"],
+  "properties": {
+    "schemaVersion": {"const": "mechanism-registry@1"},
+    "mechanisms": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mechanismId",
+          "validatorId",
+          "owner",
+          "producer",
+          "runtimeConsumer",
+          "inputSchemaId",
+          "outputSchemaId",
+          "activationPhase",
+          "effect",
+          "resultConsumer",
+          "evidenceSink",
+          "negativeFixtures",
+          "status"
+        ],
+        "properties": {
+          "mechanismId": {"$ref": "#/$defs/kebabId"},
+          "validatorId": {"$ref": "#/$defs/validatorId"},
+          "owner": {"type": "string", "minLength": 1, "maxLength": 256},
+          "producer": {"type": "string", "minLength": 1, "maxLength": 256},
+          "runtimeConsumer": {"type": "string", "minLength": 1, "maxLength": 256},
+          "inputSchemaId": {"$ref": "#/$defs/versionedId"},
+          "outputSchemaId": {"$ref": "#/$defs/versionedId"},
+          "activationPhase": {"enum": ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"]},
+          "effect": {"enum": ["BLOCKING", "ADVISORY"]},
+          "resultConsumer": {"enum": ["DISPOSITION_REDUCER", "EVIDENCE_ONLY"]},
+          "evidenceSink": {"$ref": "#/$defs/kebabId"},
+          "negativeFixtures": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["fixtureId", "description"],
+              "properties": {
+                "fixtureId": {"$ref": "#/$defs/kebabId"},
+                "description": {"type": "string", "minLength": 1, "maxLength": 512}
+              }
+            }
+          },
+          "status": {"enum": ["LANDED_ONLY", "INTEGRATED", "CANARY_PROVEN", "OPERATIONAL"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "versionedId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$", "maxLength": 128},
+    "validatorId": {
+      "type": "string",
+      "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64})$",
+      "maxLength": 128
+    }
+  }
+}

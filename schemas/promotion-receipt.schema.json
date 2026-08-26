@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/promotion-receipt.schema.json",
+  "title": "promotion-receipt@1",
+  "description": "Final verifiable disposition bound to every input digest, every check result, and changed-file attribution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kernelRelease",
+    "repositoryId",
+    "baseCommit",
+    "candidate",
+    "digests",
+    "checkResults",
+    "changedFiles",
+    "startedAt",
+    "completedAt",
+    "disposition",
+    "reasonCodes",
+    "signing"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "promotion-receipt@1"},
+    "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+    "repositoryId": {"$ref": "#/$defs/kebabId"},
+    "baseCommit": {"$ref": "#/$defs/commitId"},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {"enum": ["COMMIT", "TREE"]},
+        "id": {"$ref": "#/$defs/commitId"}
+      }
+    },
+    "digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workContract", "profile", "packs", "validators", "compiledPlan", "capabilityIndex"],
+      "properties": {
+        "workContract": {"$ref": "#/$defs/digest"},
+        "profile": {"$ref": "#/$defs/digest"},
+        "packs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["packId", "version", "digest"],
+            "properties": {
+              "packId": {"$ref": "#/$defs/kebabId"},
+              "version": {"$ref": "#/$defs/semver"},
+              "digest": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
+        "validators": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["validatorId", "digest"],
+            "properties": {
+              "validatorId": {"$ref": "#/$defs/versionedId"},
+              "digest": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
+        "compiledPlan": {"$ref": "#/$defs/digest"},
+        "capabilityIndex": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]
+        }
+      }
+    },
+    "checkResults": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/checkResult"}
+    },
+    "changedFiles": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "changeKind", "scopeClass"],
+        "properties": {
+          "path": {"$ref": "#/$defs/relativePath"},
+          "changeKind": {"enum": ["ADDED", "MODIFIED", "DELETED", "RENAMED"]},
+          "scopeClass": {"enum": ["ALLOWED", "READONLY", "FORBIDDEN", "UNCLASSIFIED"]}
+        }
+      }
+    },
+    "startedAt": {"$ref": "#/$defs/timestamp"},
+    "completedAt": {"$ref": "#/$defs/timestamp"},
+    "disposition": {"enum": ["PROMOTABLE", "BLOCKED"]},
+    "reasonCodes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64}
+    },
+    "signing": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "publicKey", "signature"],
+          "properties": {
+            "algorithm": {"const": "ed25519"},
+            "publicKey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "signature": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "versionedId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$", "maxLength": 128},
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "commitId": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"},
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "checkResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "checkId",
+        "packId",
+        "planDigest",
+        "candidateId",
+        "effect",
+        "outcome",
+        "reasonCodes",
+        "evidence",
+        "startedAt",
+        "completedAt"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "check-result@1"},
+        "checkId": {"$ref": "#/$defs/kebabId"},
+        "packId": {"$ref": "#/$defs/kebabId"},
+        "planDigest": {"$ref": "#/$defs/digest"},
+        "candidateId": {"$ref": "#/$defs/commitId"},
+        "effect": {"enum": ["BLOCKING", "ADVISORY"]},
+        "outcome": {"enum": ["PASS", "FIRED", "INFRA_FAILURE"]},
+        "reasonCodes": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64}
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["artifactId", "digest"],
+            "properties": {
+              "artifactId": {"$ref": "#/$defs/kebabId"},
+              "digest": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
+        "startedAt": {"$ref": "#/$defs/timestamp"},
+        "completedAt": {"$ref": "#/$defs/timestamp"}
+      }
+    }
+  }
+}

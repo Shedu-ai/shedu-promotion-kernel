@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/work-contract.schema.json",
+  "title": "work-contract@1",
+  "description": "Hash-bound authorization for one candidate evaluation. Commands are exact argument arrays; the kernel cannot widen this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "target",
+    "objectiveId",
+    "acceptanceCriterionIds",
+    "scope",
+    "validationCommands",
+    "policyProfile",
+    "capabilityIndex",
+    "artifactRoot",
+    "maxRuntimeSeconds",
+    "resourceCeilings",
+    "authorization"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "work-contract@1"},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "baseCommit", "candidate"],
+      "properties": {
+        "repositoryId": {"$ref": "#/$defs/kebabId"},
+        "baseCommit": {"$ref": "#/$defs/commitId"},
+        "candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {"enum": ["COMMIT", "TREE"]},
+            "id": {"$ref": "#/$defs/commitId"}
+          }
+        }
+      }
+    },
+    "objectiveId": {"$ref": "#/$defs/kebabId"},
+    "acceptanceCriterionIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/kebabId"}
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "readonly", "forbidden"],
+      "properties": {
+        "allowed": {"$ref": "#/$defs/pathSet"},
+        "readonly": {"$ref": "#/$defs/pathSet"},
+        "forbidden": {"$ref": "#/$defs/pathSet"}
+      }
+    },
+    "validationCommands": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["commandId", "phase", "argv"],
+        "properties": {
+          "commandId": {"$ref": "#/$defs/kebabId"},
+          "phase": {"$ref": "#/$defs/phase"},
+          "argv": {"$ref": "#/$defs/argv"}
+        }
+      }
+    },
+    "policyProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "path", "digest"],
+      "properties": {
+        "profileId": {"$ref": "#/$defs/kebabId"},
+        "path": {"$ref": "#/$defs/relativePath"},
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "capabilityIndex": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "digest"],
+          "properties": {
+            "path": {"$ref": "#/$defs/relativePath"},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "artifactRoot": {"$ref": "#/$defs/relativePath"},
+    "maxRuntimeSeconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+    "resourceCeilings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxOutputBytes", "maxArtifactBytes", "maxProcesses"],
+      "properties": {
+        "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+        "maxArtifactBytes": {"type": "integer", "minimum": 1, "maximum": 10737418240},
+        "maxProcesses": {"type": "integer", "minimum": 1, "maximum": 1024}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "issuedAt", "signature"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1, "maxLength": 256},
+        "issuedAt": {"$ref": "#/$defs/timestamp"},
+        "signature": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["algorithm", "publicKey", "signature"],
+              "properties": {
+                "algorithm": {"const": "ed25519"},
+                "publicKey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "signature": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "commitId": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "phase": {"enum": ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"]},
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"},
+    "pathSet": {
+      "type": "array",
+      "maxItems": 1024,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"}
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    }
+  }
+}

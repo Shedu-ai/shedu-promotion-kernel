@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/policy-pack.schema.json",
+  "title": "policy-pack@1",
+  "description": "Declarative policy pack. Packs carry no executable code, no shell fragments, no override rules, and no secret values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "packId", "version", "description", "phases", "dependencies", "checks"],
+  "properties": {
+    "schemaVersion": {"const": "policy-pack@1"},
+    "packId": {"$ref": "#/$defs/kebabId"},
+    "version": {"$ref": "#/$defs/semver"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/phase"}
+    },
+    "dependencies": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packId", "version", "digest"],
+        "properties": {
+          "packId": {"$ref": "#/$defs/kebabId"},
+          "version": {"$ref": "#/$defs/semver"},
+          "digest": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/check"}
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "versionedId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$", "maxLength": 128},
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "phase": {"enum": ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"]},
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkId",
+        "phase",
+        "effect",
+        "validator",
+        "inputs",
+        "outputSchemaId",
+        "timeoutSeconds",
+        "network",
+        "filesystem",
+        "envAllowlist",
+        "resultConsumer"
+      ],
+      "properties": {
+        "checkId": {"$ref": "#/$defs/kebabId"},
+        "phase": {"$ref": "#/$defs/phase"},
+        "effect": {"enum": ["BLOCKING", "ADVISORY"]},
+        "validator": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "builtinId"],
+              "properties": {
+                "kind": {"const": "BUILTIN"},
+                "builtinId": {"$ref": "#/$defs/versionedId"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "argv"],
+              "properties": {
+                "kind": {"const": "TARGET_COMMAND"},
+                "argv": {"$ref": "#/$defs/argv"}
+              }
+            }
+          ]
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$", "maxLength": 128}
+        },
+        "outputSchemaId": {"$ref": "#/$defs/versionedId"},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "network": {"const": "NONE"},
+        "filesystem": {"const": "READ_ONLY"},
+        "envAllowlist": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"}
+        },
+        "resultConsumer": {"enum": ["DISPOSITION_REDUCER", "EVIDENCE_ONLY"]}
+      }
+    }
+  }
+}

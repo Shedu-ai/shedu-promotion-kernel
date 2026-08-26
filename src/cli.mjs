@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 import process from "node:process";
+import { readFileSync } from "node:fs";
+import { validateDocument } from "./contracts.mjs";
+import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
+import { compilePlan } from "./compiler.mjs";
 
 export const SUBJECT_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -14,10 +18,102 @@ export const SUBJECT_PROBE = Object.freeze({
   promotionEntrypointAvailable: false
 });
 
+function emitError(reasonCode, errors) {
+  const doc = { schemaVersion: "promotion-kernel-error@1", status: "BLOCKED", reasonCode };
+  if (Array.isArray(errors) && errors.length > 0) {
+    doc.errors = errors.map((e) => ({ reasonCode: e.reasonCode, message: e.message }));
+  }
+  process.stderr.write(`${JSON.stringify(doc)}\n`);
+  return 2;
+}
+
+function runCompile(argv) {
+  const usage = () =>
+    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: compile --contract <file> --repo <dir>" }]);
+  const flags = new Map();
+  for (let i = 0; i < argv.length; i += 2) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if ((flag !== "--contract" && flag !== "--repo") || value === undefined || flags.has(flag)) {
+      return usage();
+    }
+    flags.set(flag, value);
+  }
+  if (!flags.has("--contract") || !flags.has("--repo")) return usage();
+
+  let bytes;
+  try {
+    bytes = readFileSync(flags.get("--contract"));
+  } catch {
+    return emitError("AUTHORITY_OBJECT_MISSING", [
+      { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
+    ]);
+  }
+  const contract = validateDocument("work-contract@1", bytes);
+  if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
+  const workContract = contract.value;
+  const repoDir = flags.get("--repo");
+  const baseCommit = workContract.target.baseCommit;
+
+  const commit = verifyImmutableCommit(repoDir, baseCommit);
+  if (!commit.ok) return emitError(commit.reasonCode, [commit]);
+
+  const profile = loadAuthorityDocument({
+    repoDir,
+    baseCommit,
+    path: workContract.policyProfile.path,
+    expectedDigest: workContract.policyProfile.digest,
+    kind: "policy-profile@1"
+  });
+  if (!profile.ok) return emitError(profile.reasonCode, profile.errors ?? [profile]);
+
+  let capabilityIndexDigest = null;
+  if (workContract.capabilityIndex !== null) {
+    const index = loadAuthorityDocument({
+      repoDir,
+      baseCommit,
+      path: workContract.capabilityIndex.path,
+      expectedDigest: workContract.capabilityIndex.digest,
+      kind: "capability-index@1"
+    });
+    if (!index.ok) return emitError(index.reasonCode, index.errors ?? [index]);
+    capabilityIndexDigest = index.digest;
+  }
+
+  const packs = [];
+  for (const selection of profile.value.packs) {
+    const pack = loadAuthorityDocument({
+      repoDir,
+      baseCommit,
+      path: selection.path,
+      expectedDigest: selection.digest,
+      kind: "policy-pack@1"
+    });
+    if (!pack.ok) return emitError(pack.reasonCode, pack.errors ?? [pack]);
+    packs.push({ value: pack.value, digest: pack.digest });
+  }
+
+  const compiled = compilePlan({
+    workContract,
+    profile: profile.value,
+    profileDigest: profile.digest,
+    packs,
+    capabilityIndexDigest
+  });
+  if (!compiled.ok) return emitError(compiled.errors[0].reasonCode, compiled.errors);
+
+  process.stdout.write(`${compiled.planBytes}\n`);
+  return 0;
+}
+
 export function main(argv = process.argv.slice(2)) {
   if (argv.length === 1 && argv[0] === "--subject-probe") {
     process.stdout.write(`${JSON.stringify(SUBJECT_PROBE)}\n`);
     return 0;
+  }
+
+  if (argv[0] === "compile") {
+    return runCompile(argv.slice(1));
   }
 
   process.stderr.write(`${JSON.stringify({

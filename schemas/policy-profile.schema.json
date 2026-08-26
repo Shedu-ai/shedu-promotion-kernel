@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/policy-profile.schema.json",
+  "title": "policy-profile@1",
+  "description": "Selects exact pack versions and digests. Profiles compose by union: strengthening is expressible, weakening has no representation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "profileId", "version", "description", "packs", "strengthen"],
+  "properties": {
+    "schemaVersion": {"const": "policy-profile@1"},
+    "profileId": {"$ref": "#/$defs/kebabId"},
+    "version": {"$ref": "#/$defs/semver"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 1024},
+    "packs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packId", "version", "path", "digest"],
+        "properties": {
+          "packId": {"$ref": "#/$defs/kebabId"},
+          "version": {"$ref": "#/$defs/semver"},
+          "path": {"$ref": "#/$defs/relativePath"},
+          "digest": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "strengthen": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/kebabId"}
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "semver": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"}
+  }
+}

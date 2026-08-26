@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "canonical-json-conformance@1",
+  "contract": "canonical-json@1",
+  "hash": "sha256-over-utf8-canonical-bytes",
+  "vectors": [
+    {
+      "name": "key-sorting-and-scalars",
+      "value": {
+        "z": 1,
+        "a": [
+          true,
+          false,
+          null
+        ],
+        "m": -42
+      },
+      "canonical": "{\"a\":[true,false,null],\"m\":-42,\"z\":1}",
+      "digest": "sha256:410c6ea3bf39f940f3598dfbd7d23c54979470d8abd1f4b61db7d99f08f8d422"
+    },
+    {
+      "name": "nested-empty-structures",
+      "value": {
+        "b": [],
+        "a": {},
+        "c": {
+          "d": [
+            {}
+          ]
+        }
+      },
+      "canonical": "{\"a\":{},\"b\":[],\"c\":{\"d\":[{}]}}",
+      "digest": "sha256:52d8e9daf5e0a7d38eedc020e0f6954cfa020f8545779d63d9fa36b6f2040991"
+    },
+    {
+      "name": "unicode-and-escapes",
+      "value": {
+        "text": "héllo\n\"quote\"\\\t\u0001",
+        "emoji": "😀"
+      },
+      "canonical": "{\"emoji\":\"😀\",\"text\":\"héllo\\n\\\"quote\\\"\\\\\\t\\u0001\"}",
+      "digest": "sha256:37dea5c7511ff42adcacdf74ffd6f663f8e424e5f756eba3dcde9970a07a691d"
+    },
+    {
+      "name": "utf16-code-unit-key-order",
+      "value": {
+        "Ａ": "fullwidth A, U+FF21",
+        "𐀀": "U+10000 sorts first under UTF-16 code-unit order: its units begin at D800"
+      },
+      "canonical": "{\"𐀀\":\"U+10000 sorts first under UTF-16 code-unit order: its units begin at D800\",\"Ａ\":\"fullwidth A, U+FF21\"}",
+      "digest": "sha256:2f9faab75f63d372727e354d451cc8a65fcd2a62a3c4331513d8c40d14f73469"
+    },
+    {
+      "name": "safe-integer-extremes",
+      "value": {
+        "min": -9007199254740991,
+        "max": 9007199254740991,
+        "zero": 0
+      },
+      "canonical": "{\"max\":9007199254740991,\"min\":-9007199254740991,\"zero\":0}",
+      "digest": "sha256:b7b2401ddca2165824e98c61890c0aaec470258d3119dd265d02be9438bf47e6"
+    },
+    {
+      "name": "deep-mixed-document",
+      "value": {
+        "checks": [
+          {
+            "checkId": "a-check",
+            "argv": [
+              "node",
+              "--test",
+              "--arg=a b;c"
+            ],
+            "on": true
+          }
+        ],
+        "n": 7
+      },
+      "canonical": "{\"checks\":[{\"argv\":[\"node\",\"--test\",\"--arg=a b;c\"],\"checkId\":\"a-check\",\"on\":true}],\"n\":7}",
+      "digest": "sha256:274f920556de3c7f296ca767328ab553fb049be8f111770a47f313b74be099c3"
+    }
+  ]
+}

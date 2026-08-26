@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/orphan-census.schema.json",
+  "title": "orphan-census@1",
+  "description": "Two-way census over the registered, implemented, dispatched, emitted, and consumed check sets. Complete only when all five sets are equal after declared exclusions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "complete", "stageCounts", "orphans", "exclusions", "errors"],
+  "properties": {
+    "schemaVersion": {"const": "orphan-census@1"},
+    "complete": {"type": "boolean"},
+    "stageCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registered", "implemented", "dispatched", "emitted", "consumed"],
+      "properties": {
+        "registered": {"type": "integer", "minimum": 0},
+        "implemented": {"type": "integer", "minimum": 0},
+        "dispatched": {"type": "integer", "minimum": 0},
+        "emitted": {"type": "integer", "minimum": 0},
+        "consumed": {"type": "integer", "minimum": 0}
+      }
+    },
+    "orphans": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "class", "entry"],
+        "properties": {
+          "id": {"$ref": "#/$defs/kebabId"},
+          "entry": {"$ref": "#/$defs/censusEntry"},
+          "class": {
+            "enum": [
+              "ORPHAN_REGISTERED_NOT_IMPLEMENTED",
+              "ORPHAN_IMPLEMENTED_NOT_REGISTERED",
+              "ORPHAN_IMPLEMENTED_NOT_DISPATCHED",
+              "ORPHAN_DISPATCHED_NOT_IMPLEMENTED",
+              "ORPHAN_DISPATCHED_NOT_EMITTED",
+              "ORPHAN_EMITTED_NOT_DISPATCHED",
+              "ORPHAN_EMITTED_NOT_CONSUMED",
+              "ORPHAN_CONSUMED_NOT_EMITTED"
+            ]
+          }
+        }
+      }
+    },
+    "exclusions": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "stages", "reason"],
+        "properties": {
+          "id": {"$ref": "#/$defs/kebabId"},
+          "stages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "uniqueItems": true,
+            "items": {"enum": ["registered", "implemented", "dispatched", "emitted", "consumed"]}
+          },
+          "reason": {"type": "string", "minLength": 1, "maxLength": 512}
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reasonCode", "message"],
+        "properties": {
+          "reasonCode": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64},
+          "message": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "censusEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "validatorId", "phase", "effect", "resultConsumer"],
+      "properties": {
+        "id": {"$ref": "#/$defs/kebabId"},
+        "validatorId": {
+          "type": "string",
+          "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64}|unresolved)$",
+          "maxLength": 128
+        },
+        "phase": {"enum": ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION", "UNRESOLVED"]},
+        "effect": {"enum": ["BLOCKING", "ADVISORY", "UNRESOLVED"]},
+        "resultConsumer": {"enum": ["DISPOSITION_REDUCER", "EVIDENCE_ONLY", "UNRESOLVED"]}
+      }
+    }
+  }
+}

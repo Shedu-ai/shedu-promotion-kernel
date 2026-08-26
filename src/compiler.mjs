@@ -1,0 +1,237 @@
+import { readFileSync } from "node:fs";
+import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
+import { validateValue } from "./contracts.mjs";
+import { knownBuiltinValidatorIds } from "./builtin-validators.mjs";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+export const KERNEL_RELEASE = `${pkg.name}@${pkg.version}`;
+
+const PHASES = ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"];
+
+// Resolve a profile and its packs into a canonical compiled-policy-plan@1.
+// Equal inputs produce byte-identical plan bytes and digest. All compile-time
+// failures are collected before returning, since no candidate command has run
+// yet; any error means no plan is produced.
+export function compilePlan({
+  workContract,
+  profile,
+  profileDigest,
+  packs,
+  capabilityIndexDigest = null,
+  builtinValidatorIds = knownBuiltinValidatorIds()
+}) {
+  for (const [kind, value] of [
+    ["work-contract@1", workContract],
+    ["policy-profile@1", profile]
+  ]) {
+    const r = validateValue(kind, value);
+    if (!r.ok) return { ok: false, errors: r.errors };
+  }
+  for (const p of packs) {
+    const r = validateValue("policy-pack@1", p.value);
+    if (!r.ok) return { ok: false, errors: r.errors };
+  }
+
+  const errors = [];
+  const fail = (reasonCode, message) => errors.push({ reasonCode, message });
+
+  if (workContract.policyProfile.digest !== profileDigest) {
+    fail("AUTHORITY_DIGEST_MISMATCH", `work contract pins profile digest ${workContract.policyProfile.digest}, received ${profileDigest}`);
+  }
+  if (workContract.policyProfile.profileId !== profile.profileId) {
+    fail("PROFILE_IDENTITY_MISMATCH", `work contract names profile ${workContract.policyProfile.profileId}, document declares ${profile.profileId}`);
+  }
+  const expectedCapabilityDigest = workContract.capabilityIndex === null ? null : workContract.capabilityIndex.digest;
+  if (expectedCapabilityDigest !== capabilityIndexDigest) {
+    fail("AUTHORITY_DIGEST_MISMATCH", `work contract pins capability-index digest ${expectedCapabilityDigest}, received ${capabilityIndexDigest}`);
+  }
+
+  const supplied = new Map();
+  for (const p of packs) {
+    if (supplied.has(p.value.packId)) fail("DUPLICATE_PACK_ID", `pack ${p.value.packId} supplied more than once`);
+    supplied.set(p.value.packId, p);
+  }
+  const selected = new Map();
+  for (const sel of profile.packs) {
+    const p = supplied.get(sel.packId);
+    if (!p) {
+      fail("PACK_NOT_FOUND", `profile selects ${sel.packId}@${sel.version} but no pack document was supplied`);
+      continue;
+    }
+    if (p.value.version !== sel.version) {
+      fail("PACK_IDENTITY_MISMATCH", `${sel.packId}: profile pins version ${sel.version}, document declares ${p.value.version}`);
+    }
+    if (p.digest !== sel.digest) {
+      fail("PACK_DIGEST_MISMATCH", `${sel.packId}: profile pins ${sel.digest}, supplied document digest is ${p.digest}`);
+    }
+    selected.set(sel.packId, p);
+  }
+  for (const packId of supplied.keys()) {
+    if (!profile.packs.some((s) => s.packId === packId)) {
+      fail("PACK_NOT_SELECTED", `pack ${packId} was supplied but is not selected by profile ${profile.profileId}`);
+    }
+  }
+
+  for (const [packId, p] of selected) {
+    for (const dep of p.value.dependencies) {
+      const target = selected.get(dep.packId);
+      if (!target || target.value.version !== dep.version) {
+        fail("DEPENDENCY_UNSATISFIED", `${packId} requires ${dep.packId}@${dep.version}, which the profile does not select`);
+        continue;
+      }
+      if (target.digest !== dep.digest) {
+        fail("PACK_DIGEST_MISMATCH", `${packId} pins ${dep.packId} digest ${dep.digest}, selected digest is ${target.digest}`);
+      }
+    }
+  }
+
+  // Every check of a dependency must be schedulable before every check of the
+  // dependent pack: dependencies are never silently dropped or reordered. A
+  // dependent check in an earlier phase than any dependency check is a
+  // compile-time conflict.
+  for (const [packId, p] of selected) {
+    const minPhase = Math.min(...p.value.checks.map((c) => PHASES.indexOf(c.phase)));
+    for (const dep of p.value.dependencies) {
+      const target = selected.get(dep.packId);
+      if (!target) continue;
+      for (const depCheck of target.value.checks) {
+        if (PHASES.indexOf(depCheck.phase) > minPhase) {
+          fail(
+            "PHASE_ORDER_CONFLICT",
+            `pack ${packId} has a check in ${PHASES[minPhase]} but depends on ${dep.packId}, whose check ${depCheck.checkId} runs later in ${depCheck.phase}`
+          );
+        }
+      }
+    }
+  }
+
+  // Deterministic topological order: Kahn's algorithm with a lexicographically
+  // sorted frontier, dependencies first.
+  const ids = [...selected.keys()].sort();
+  const depsOf = (id) =>
+    selected
+      .get(id)
+      .value.dependencies.map((d) => d.packId)
+      .filter((d) => selected.has(d) && d !== id);
+  const indegree = new Map(ids.map((id) => [id, depsOf(id).length]));
+  const order = [];
+  let frontier = ids.filter((id) => indegree.get(id) === 0).sort();
+  while (frontier.length > 0) {
+    const id = frontier.shift();
+    order.push(id);
+    for (const other of ids) {
+      if (depsOf(other).includes(id)) {
+        indegree.set(other, indegree.get(other) - 1);
+        if (indegree.get(other) === 0) {
+          frontier.push(other);
+          frontier = frontier.sort();
+        }
+      }
+    }
+  }
+  if (order.length !== ids.length) {
+    fail("DEPENDENCY_CYCLE", `packs form a dependency cycle: ${ids.filter((id) => !order.includes(id)).join(", ")}`);
+  }
+
+  const checkOwner = new Map();
+  const checkById = new Map();
+  for (const [packId, p] of selected) {
+    for (const check of p.value.checks) {
+      if (checkOwner.has(check.checkId)) {
+        fail("DUPLICATE_CHECK_ID", `check ${check.checkId} is declared by both ${checkOwner.get(check.checkId)} and ${packId}`);
+      } else {
+        checkOwner.set(check.checkId, packId);
+        checkById.set(check.checkId, check);
+      }
+      if (check.validator.kind === "BUILTIN" && !builtinValidatorIds.has(check.validator.builtinId)) {
+        fail("UNKNOWN_VALIDATOR", `check ${check.checkId} references unknown builtin validator ${check.validator.builtinId}`);
+      }
+    }
+  }
+
+  const strengthened = new Set(profile.strengthen);
+  for (const checkId of strengthened) {
+    const check = checkById.get(checkId);
+    if (!check) {
+      fail("UNKNOWN_CHECK_STRENGTHENED", `profile strengthens unknown check ${checkId}`);
+      continue;
+    }
+    if (check.resultConsumer !== "DISPOSITION_REDUCER") {
+      fail("STRENGTHEN_CONFLICT", `check ${checkId} is EVIDENCE_ONLY and cannot be strengthened to BLOCKING`);
+    }
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+
+  const packOrder = new Map(order.map((id, idx) => [id, idx]));
+  const planChecks = [];
+  for (const packId of order) {
+    const p = selected.get(packId);
+    for (const check of p.value.checks) {
+      // The phase-order gate above guarantees every dependency check precedes
+      // every check of this pack, so nothing is filtered here.
+      const dependsOn = new Set();
+      for (const dep of p.value.dependencies) {
+        for (const depCheck of selected.get(dep.packId).value.checks) {
+          dependsOn.add(depCheck.checkId);
+        }
+      }
+      planChecks.push({
+        checkId: check.checkId,
+        packId,
+        packVersion: p.value.version,
+        phase: check.phase,
+        effect: strengthened.has(check.checkId) ? "BLOCKING" : check.effect,
+        validator: check.validator,
+        inputs: check.inputs,
+        outputSchemaId: check.outputSchemaId,
+        timeoutSeconds: check.timeoutSeconds,
+        network: check.network,
+        filesystem: check.filesystem,
+        envAllowlist: check.envAllowlist,
+        resultConsumer: check.resultConsumer,
+        dependsOn: [...dependsOn].sort()
+      });
+    }
+  }
+  planChecks.sort(
+    (a, b) =>
+      PHASES.indexOf(a.phase) - PHASES.indexOf(b.phase) ||
+      packOrder.get(a.packId) - packOrder.get(b.packId) ||
+      (a.checkId < b.checkId ? -1 : 1)
+  );
+
+  const plan = {
+    schemaVersion: "compiled-policy-plan@1",
+    kernelRelease: KERNEL_RELEASE,
+    repositoryId: workContract.target.repositoryId,
+    baseCommit: workContract.target.baseCommit,
+    candidate: {
+      kind: workContract.target.candidate.kind,
+      id: workContract.target.candidate.id
+    },
+    profileId: profile.profileId,
+    sourceDigests: {
+      workContract: digestOfCanonical(workContract),
+      profile: profileDigest,
+      capabilityIndex: capabilityIndexDigest,
+      packs: [...profile.packs]
+        .sort((a, b) => (a.packId < b.packId ? -1 : 1))
+        .map((s) => ({ packId: s.packId, version: s.version, digest: s.digest }))
+    },
+    checks: planChecks
+  };
+
+  const planCheck = validateValue("compiled-policy-plan@1", plan);
+  if (!planCheck.ok) {
+    throw new Error(`compiler produced an invalid plan: ${JSON.stringify(planCheck.errors)}`);
+  }
+  const planBytes = canonicalize(plan);
+  return {
+    ok: true,
+    plan,
+    planBytes,
+    planDigest: digestOfBytes(Buffer.from(planBytes, "utf8"))
+  };
+}
