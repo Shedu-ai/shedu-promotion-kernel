@@ -129,7 +129,7 @@ test("compile usage errors are machine-readable", () => {
 });
 
 test("undeclared subcommands still fail closed", () => {
-  const result = runCli(["evaluate"]);
+  const result = runCli(["frobnicate"]);
   assert.equal(result.status, 2);
   assert.equal(JSON.parse(result.stderr).reasonCode, "KERNEL_NOT_IMPLEMENTED");
 });

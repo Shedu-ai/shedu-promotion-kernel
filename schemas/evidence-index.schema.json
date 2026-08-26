@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/evidence-index.schema.json",
+  "title": "evidence-index@1",
+  "description": "Content-addressed evidence index. Every artifact is bound to the repository, base, candidate, work contract, profile, packs, compiled plan, validator identity, and check that produced it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "binding", "artifacts"],
+  "properties": {
+    "schemaVersion": {"const": "evidence-index@1"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "baseCommit", "candidateId", "workContract", "profile", "packs", "compiledPlan"],
+      "properties": {
+        "repositoryId": {"$ref": "#/$defs/kebabId"},
+        "baseCommit": {"$ref": "#/$defs/commitId"},
+        "candidateId": {"$ref": "#/$defs/commitId"},
+        "workContract": {"$ref": "#/$defs/digest"},
+        "profile": {"$ref": "#/$defs/digest"},
+        "packs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["packId", "version", "digest"],
+            "properties": {
+              "packId": {"$ref": "#/$defs/kebabId"},
+              "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+              "digest": {"$ref": "#/$defs/digest"}
+            }
+          }
+        },
+        "compiledPlan": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "checkId", "validatorId", "digest", "byteLength", "mediaType"],
+        "properties": {
+          "artifactId": {"$ref": "#/$defs/kebabId"},
+          "checkId": {"$ref": "#/$defs/kebabId"},
+          "validatorId": {"$ref": "#/$defs/validatorId"},
+          "digest": {"$ref": "#/$defs/digest"},
+          "byteLength": {"type": "integer", "minimum": 0},
+          "mediaType": {"enum": ["application/json", "text/plain", "application/octet-stream"]}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "commitId": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "validatorId": {
+      "type": "string",
+      "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64})$",
+      "maxLength": 128
+    }
+  }
+}

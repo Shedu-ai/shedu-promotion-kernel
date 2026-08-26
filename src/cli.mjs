@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { compilePlan } from "./compiler.mjs";
+import { evaluateCandidate } from "./evaluate.mjs";
 
 export const SUBJECT_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -106,6 +107,41 @@ function runCompile(argv) {
   return 0;
 }
 
+function parseFlags(argv, allowed) {
+  const flags = new Map();
+  for (let i = 0; i < argv.length; i += 2) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (!allowed.includes(flag) || value === undefined || flags.has(flag)) return null;
+    flags.set(flag, value);
+  }
+  return flags;
+}
+
+function runEvaluate(argv) {
+  const usage = () =>
+    emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir>" }]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out"]);
+  if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
+  let contractBytes;
+  try {
+    contractBytes = readFileSync(flags.get("--contract"));
+  } catch {
+    return emitError("AUTHORITY_OBJECT_MISSING", [
+      { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
+    ]);
+  }
+  const outcome = evaluateCandidate({
+    repoDir: flags.get("--repo"),
+    contractBytes,
+    outDir: flags.get("--out")
+  });
+  if (!outcome.ok) return emitError(outcome.reasonCode, outcome.errors);
+  process.stdout.write(outcome.receiptBytes);
+  process.stdout.write("\n");
+  return 0;
+}
+
 export function main(argv = process.argv.slice(2)) {
   if (argv.length === 1 && argv[0] === "--subject-probe") {
     process.stdout.write(`${JSON.stringify(SUBJECT_PROBE)}\n`);
@@ -114,6 +150,9 @@ export function main(argv = process.argv.slice(2)) {
 
   if (argv[0] === "compile") {
     return runCompile(argv.slice(1));
+  }
+  if (argv[0] === "evaluate") {
+    return runEvaluate(argv.slice(1));
   }
 
   process.stderr.write(`${JSON.stringify({

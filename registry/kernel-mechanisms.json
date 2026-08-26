@@ -73,7 +73,7 @@
         { "fixtureId": "failing-command", "description": "a failing validation command FIREs and blocks" },
         { "fixtureId": "omitted-command", "description": "an unexecuted required command can never yield PROMOTABLE" }
       ],
-      "status": "LANDED_ONLY"
+      "status": "INTEGRATED"
     },
     {
       "mechanismId": "evidence-binding-index",
@@ -91,7 +91,7 @@
         { "fixtureId": "mutated-evidence", "description": "a mutated evidence artifact FIREs and blocks" },
         { "fixtureId": "missing-evidence", "description": "an unindexed required result FIREs and blocks" }
       ],
-      "status": "LANDED_ONLY"
+      "status": "INTEGRATED"
     }
   ]
 }

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/command-report.schema.json",
+  "title": "command-report@1",
+  "description": "Machine report for one exact-argv command execution. Deliberately excludes wall-clock timing so equal inputs produce byte-identical reports; timing lives in the check result timestamps.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "commandId", "phase", "argv", "exitCode", "signal", "timedOut", "stdout", "stderr"],
+  "properties": {
+    "schemaVersion": {"const": "command-report@1"},
+    "commandId": {"$ref": "#/$defs/kebabId"},
+    "phase": {"enum": ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"]},
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "exitCode": {
+      "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0, "maximum": 255}]
+    },
+    "signal": {
+      "oneOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 32}]
+    },
+    "timedOut": {"type": "boolean"},
+    "stdout": {"$ref": "#/$defs/stream"},
+    "stderr": {"$ref": "#/$defs/stream"}
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "byteLength", "truncated"],
+      "properties": {
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "byteLength": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -1,39 +1,44 @@
 import { candidateIdentityVerify, candidateTreeStability } from "./validators/candidate-identity.mjs";
 import { scopeBoundaryClassify } from "./validators/scope-boundary.mjs";
+import { validationPlanExecute } from "./validators/validation-plan.mjs";
+import { evidenceBindingIndex } from "./validators/evidence-binding.mjs";
 
 // Closed registry of builtin validators. `implemented` is derived from the
 // presence of an executable `run` function — a registry row can never claim
 // an implementation that does not exist, and an implementation cannot ship
 // without a registry row (the dispatcher only resolves through this table).
-// validation-plan-execute@1 and evidence-binding-index@1 are reserved and
-// dispatched by the mandatory packs, but their implementations arrive with
-// the target-command runner and evidence index (brief step 4); until then
-// they are declared census exclusions, never silently live.
+// `sourceFile` names the module whose bytes are the validator identity
+// digest bound into receipts.
 const definitions = {
   "candidate-identity-verify@1": {
     packId: "candidate-identity",
     outputSchemaId: "check-result@1",
+    sourceFile: "validators/candidate-identity.mjs",
     run: candidateIdentityVerify
   },
   "candidate-tree-stability@1": {
     packId: "candidate-identity",
     outputSchemaId: "check-result@1",
+    sourceFile: "validators/candidate-identity.mjs",
     run: candidateTreeStability
   },
   "scope-boundary-classify@1": {
     packId: "scope-boundary",
     outputSchemaId: "check-result@1",
+    sourceFile: "validators/scope-boundary.mjs",
     run: scopeBoundaryClassify
   },
   "validation-plan-execute@1": {
     packId: "validation-plan",
     outputSchemaId: "check-result@1",
-    run: null
+    sourceFile: "validators/validation-plan.mjs",
+    run: validationPlanExecute
   },
   "evidence-binding-index@1": {
     packId: "evidence-binding",
     outputSchemaId: "check-result@1",
-    run: null
+    sourceFile: "validators/evidence-binding.mjs",
+    run: evidenceBindingIndex
   }
 };
 

@@ -12,7 +12,9 @@ const SCHEMA_FILES = {
   "capability-index@1": "capability-index.schema.json",
   "mechanism-registry@1": "mechanism-registry.schema.json",
   "check-result@1": "check-result.schema.json",
-  "orphan-census@1": "orphan-census.schema.json"
+  "orphan-census@1": "orphan-census.schema.json",
+  "command-report@1": "command-report.schema.json",
+  "evidence-index@1": "evidence-index.schema.json"
 };
 
 const schemas = new Map(
@@ -105,6 +107,10 @@ function argvSecretErrors(argv, location) {
     }
   }
   return out;
+}
+
+export function isSecretEnvName(name) {
+  return wordsNameSecret(name.toLowerCase().split("_").filter(Boolean));
 }
 
 function envAllowlistSecretErrors(names, location) {

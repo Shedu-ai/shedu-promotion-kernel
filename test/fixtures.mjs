@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
-import { digestOfCanonical } from "../src/canonical-json.mjs";
+import { digestOfBytes, digestOfCanonical } from "../src/canonical-json.mjs";
 
 export const COMMIT_A = "a".repeat(40);
 export const COMMIT_B = "b".repeat(40);
@@ -150,6 +150,69 @@ export function writeRepoFile(repoDir, relativePath, content) {
   const target = join(repoDir, relativePath);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
+}
+
+export function defaultTeamPack() {
+  return makePack({
+    packId: "team-pack",
+    checks: [
+      makeCheck({
+        checkId: "team-check",
+        effect: "ADVISORY",
+        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"] }
+      })
+    ]
+  });
+}
+
+// A complete evaluatable target repository: base commit carrying the profile
+// and target packs, plus a contract factory bound to that base.
+export function buildTargetRepo(options = {}) {
+  const {
+    scope = { allowed: ["src/"], readonly: ["docs/"], forbidden: ["policy/"] },
+    targetPacks = [defaultTeamPack()],
+    validationCommands = [
+      { commandId: "noop-check", phase: "CANDIDATE_VALIDATION", argv: ["node", "-e", "process.exit(0)"] }
+    ],
+    extraBaseFiles = {},
+    profileOverrides = {}
+  } = options;
+
+  const repoDir = makeGitRepo();
+  writeRepoFile(repoDir, "src/app.mjs", "export const app = 1;\n");
+  writeRepoFile(repoDir, "docs/readme.md", "readme\n");
+  for (const [path, content] of Object.entries(extraBaseFiles)) {
+    writeRepoFile(repoDir, path, content);
+  }
+  const packSelections = targetPacks.map((value) => {
+    const bytes = `${JSON.stringify(value)}\n`;
+    const path = `policy/${value.packId}.json`;
+    writeRepoFile(repoDir, path, bytes);
+    return { packId: value.packId, version: value.version, path, digest: digestOfBytes(Buffer.from(bytes, "utf8")) };
+  });
+  const profile = makeProfile(packSelections, profileOverrides);
+  const profileBytes = `${JSON.stringify(profile)}\n`;
+  writeRepoFile(repoDir, "policy/profile.json", profileBytes);
+  const baseCommit = commitAll(repoDir, "base with policy");
+
+  const contractFor = (candidateId, overrides = {}) =>
+    makeContract({
+      target: { repositoryId: "example-repo", baseCommit, candidate: { kind: "COMMIT", id: candidateId } },
+      scope,
+      validationCommands,
+      policyProfile: {
+        profileId: profile.profileId,
+        path: "policy/profile.json",
+        digest: digestOfBytes(Buffer.from(profileBytes, "utf8"))
+      },
+      ...overrides
+    });
+
+  return { repoDir, baseCommit, profile, contractFor };
+}
+
+export function contractBytesOf(contract) {
+  return Buffer.from(`${JSON.stringify(contract)}\n`, "utf8");
 }
 
 export function commitAll(repoDir, message) {
