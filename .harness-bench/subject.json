@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Shedu-ai/shedu-harness-bench/main/runner/schemas/subject-template.schema.json",
+  "$schema": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/harness-bench-subject-template.schema.json",
   "schemaVersion": "harness-bench-subject-template@1",
   "subjectId": "shedu-promotion-kernel",
   "repository": "https://github.com/Shedu-ai/shedu-promotion-kernel.git",

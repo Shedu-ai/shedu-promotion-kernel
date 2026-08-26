@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/harness-bench-subject-template.schema.json",
+  "title": "Harness Bench Subject Template",
+  "description": "A subject repository's self-declared, non-authoritative connection template. Harness Bench independently resolves and freezes the final subject identity before planning a run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "subjectId",
+    "repository",
+    "subjectKind",
+    "probeArgv",
+    "promotionArgv",
+    "capabilities",
+    "implementationStatus",
+    "commitShaSource"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": "harness-bench-subject-template@1"
+    },
+    "subjectId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$"
+    },
+    "subjectKind": {
+      "type": "string",
+      "enum": ["governed-harness", "promotion-kernel", "agent-harness"]
+    },
+    "probeArgv": {
+      "$ref": "#/$defs/argv"
+    },
+    "promotionArgv": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/argv"}
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9][0-9]*$"
+      }
+    },
+    "implementationStatus": {
+      "type": "string",
+      "enum": ["FOUNDATION_ONLY", "EXPERIMENTAL", "PILOT_ELIGIBLE", "CERTIFIED"]
+    },
+    "commitShaSource": {
+      "const": "RESOLVE_AND_FREEZE_BEFORE_PLAN"
+    }
+  },
+  "$defs": {
+    "argv": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
