@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "mechanism-registry@1",
+  "mechanisms": [
+    {
+      "mechanismId": "candidate-identity-verify",
+      "validatorId": "candidate-identity-verify@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/candidate-identity.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "CONTRACT_ADMISSION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "non-descendant-candidate", "description": "a candidate that is not a descendant of base FIREs and blocks" },
+        { "fixtureId": "dirty-materialization", "description": "a mutated candidate workspace FIREs and blocks" }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "candidate-tree-stability",
+      "validatorId": "candidate-tree-stability@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/candidate-identity.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "post-validation-mutation", "description": "a workspace mutated after validation FIREs and blocks" }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "scope-boundary-classify",
+      "validatorId": "scope-boundary-classify@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/scope-boundary.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "CANDIDATE_VALIDATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "forbidden-change", "description": "a change to a forbidden path FIREs and blocks" },
+        { "fixtureId": "readonly-change", "description": "a change to a readonly path FIREs and blocks" },
+        { "fixtureId": "unclassified-change", "description": "a change outside every scope set FIREs and blocks" },
+        { "fixtureId": "case-collision", "description": "case-colliding candidate paths FIRE and block" },
+        { "fixtureId": "symlink-escape", "description": "a symlink escaping the repository FIREs and blocks" }
+      ],
+      "status": "INTEGRATED"
+    },
+    {
+      "mechanismId": "validation-plan-execute",
+      "validatorId": "validation-plan-execute@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/validation-plan.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "CANDIDATE_VALIDATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "failing-command", "description": "a failing validation command FIREs and blocks" },
+        { "fixtureId": "omitted-command", "description": "an unexecuted required command can never yield PROMOTABLE" }
+      ],
+      "status": "LANDED_ONLY"
+    },
+    {
+      "mechanismId": "evidence-binding-index",
+      "validatorId": "evidence-binding-index@1",
+      "owner": "shedu-promotion-kernel",
+      "producer": "src/validators/evidence-binding.mjs",
+      "runtimeConsumer": "src/reducer.mjs",
+      "inputSchemaId": "compiled-policy-plan@1",
+      "outputSchemaId": "check-result@1",
+      "activationPhase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "resultConsumer": "DISPOSITION_REDUCER",
+      "evidenceSink": "evidence-index",
+      "negativeFixtures": [
+        { "fixtureId": "mutated-evidence", "description": "a mutated evidence artifact FIREs and blocks" },
+        { "fixtureId": "missing-evidence", "description": "an unindexed required result FIREs and blocks" }
+      ],
+      "status": "LANDED_ONLY"
+    }
+  ]
+}

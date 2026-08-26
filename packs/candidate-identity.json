@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "candidate-identity",
+  "version": "1.0.0",
+  "description": "Kernel integrity pack: verifies repository root, immutable base and candidate identities, ancestry, clean materialization, and post-validation tree stability.",
+  "phases": ["CONTRACT_ADMISSION", "PROMOTION_FINALIZATION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "candidate-identity-verify",
+      "phase": "CONTRACT_ADMISSION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "candidate-identity-verify@1" },
+      "inputs": ["target-identity", "candidate-workspace"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    },
+    {
+      "checkId": "candidate-tree-stability",
+      "phase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "candidate-tree-stability@1" },
+      "inputs": ["candidate-workspace"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

@@ -213,7 +213,8 @@ test("census tuples derive mechanically from registry and compiled plan", () => 
     workContract: contract,
     profile,
     profileDigest,
-    packs: packs.map((p) => ({ value: p.value, digest: p.digest }))
+    packs: packs.map((p) => ({ value: p.value, digest: p.digest })),
+    mandatoryPacks: []
   });
   assert.equal(ok, true);
   const boundResult = (checkId) => ({

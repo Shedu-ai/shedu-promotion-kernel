@@ -1,29 +1,50 @@
-// Closed registry of builtin validator identifiers reserved for the four
-// mandatory kernel packs. None is implemented yet: implementations arrive in
-// a later phase, and the orphan census keys off `implemented` so a reserved
-// id can never be claimed as live before its executable exists.
-export const BUILTIN_VALIDATORS = Object.freeze({
-  "candidate-identity-verify@1": Object.freeze({
+import { candidateIdentityVerify, candidateTreeStability } from "./validators/candidate-identity.mjs";
+import { scopeBoundaryClassify } from "./validators/scope-boundary.mjs";
+
+// Closed registry of builtin validators. `implemented` is derived from the
+// presence of an executable `run` function — a registry row can never claim
+// an implementation that does not exist, and an implementation cannot ship
+// without a registry row (the dispatcher only resolves through this table).
+// validation-plan-execute@1 and evidence-binding-index@1 are reserved and
+// dispatched by the mandatory packs, but their implementations arrive with
+// the target-command runner and evidence index (brief step 4); until then
+// they are declared census exclusions, never silently live.
+const definitions = {
+  "candidate-identity-verify@1": {
     packId: "candidate-identity",
-    implemented: false,
-    outputSchemaId: "check-result@1"
-  }),
-  "scope-boundary-classify@1": Object.freeze({
+    outputSchemaId: "check-result@1",
+    run: candidateIdentityVerify
+  },
+  "candidate-tree-stability@1": {
+    packId: "candidate-identity",
+    outputSchemaId: "check-result@1",
+    run: candidateTreeStability
+  },
+  "scope-boundary-classify@1": {
     packId: "scope-boundary",
-    implemented: false,
-    outputSchemaId: "check-result@1"
-  }),
-  "validation-plan-execute@1": Object.freeze({
+    outputSchemaId: "check-result@1",
+    run: scopeBoundaryClassify
+  },
+  "validation-plan-execute@1": {
     packId: "validation-plan",
-    implemented: false,
-    outputSchemaId: "check-result@1"
-  }),
-  "evidence-binding-index@1": Object.freeze({
+    outputSchemaId: "check-result@1",
+    run: null
+  },
+  "evidence-binding-index@1": {
     packId: "evidence-binding",
-    implemented: false,
-    outputSchemaId: "check-result@1"
-  })
-});
+    outputSchemaId: "check-result@1",
+    run: null
+  }
+};
+
+export const BUILTIN_VALIDATORS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(definitions).map(([id, def]) => [
+      id,
+      Object.freeze({ ...def, implemented: typeof def.run === "function" })
+    ])
+  )
+);
 
 export function knownBuiltinValidatorIds() {
   return new Set(Object.keys(BUILTIN_VALIDATORS));
@@ -35,4 +56,11 @@ export function implementedBuiltinValidatorIds() {
       .filter(([, descriptor]) => descriptor.implemented)
       .map(([id]) => id)
   );
+}
+
+export function resolveBuiltinValidator(builtinId) {
+  const descriptor = BUILTIN_VALIDATORS[builtinId];
+  if (!descriptor) throw new Error(`unknown builtin validator ${builtinId}`);
+  if (!descriptor.implemented) throw new Error(`builtin validator ${builtinId} is not implemented`);
+  return descriptor.run;
 }

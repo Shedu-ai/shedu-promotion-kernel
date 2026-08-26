@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "validation-plan",
+  "version": "1.0.0",
+  "description": "Kernel integrity pack: executes every contract validation command exactly once in its declared phase through the exact-argv runner, captures machine reports, and proves completeness.",
+  "phases": ["CANDIDATE_VALIDATION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "validation-plan-execute",
+      "phase": "CANDIDATE_VALIDATION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "validation-plan-execute@1" },
+      "inputs": ["validation-commands", "candidate-workspace"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 3600,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

@@ -5,6 +5,11 @@ import { validateValue } from "../src/contracts.mjs";
 import { compilePlan } from "../src/compiler.mjs";
 import { makeCheck, makeContract, makePack, makeProfile, pinPacks, profileEntries } from "./fixtures.mjs";
 
+// These tests isolate profile/pack resolution mechanics from the mandatory
+// kernel packs, which are injected unconditionally on the default path and
+// covered by mandatory-packs.test.mjs.
+const compileBare = (args) => compilePlan(Object.assign({ mandatoryPacks: [] }, args));
+
 // Standard two-pack fixture: "base-pack" plus "dependent-pack" depending on it.
 function fixture({ mutateProfile, mutatePacks } = {}) {
   const basePack = makePack({
@@ -43,9 +48,9 @@ const reasons = (result) => {
 
 test("compilation is deterministic: equal inputs give byte-identical plans", () => {
   const { contract, profile, profileDigest, packs } = fixture();
-  const first = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const first = compileBare({ workContract: contract, profile, profileDigest, packs });
   assert.equal(first.ok, true, JSON.stringify(first.errors ?? []));
-  const second = compilePlan({ workContract: contract, profile, profileDigest, packs: [...packs].reverse() });
+  const second = compileBare({ workContract: contract, profile, profileDigest, packs: [...packs].reverse() });
   assert.equal(second.ok, true);
   assert.equal(first.planBytes, second.planBytes);
   assert.equal(first.planDigest, second.planDigest);
@@ -53,7 +58,7 @@ test("compilation is deterministic: equal inputs give byte-identical plans", () 
 
 test("the compiled plan is schema-valid, ordered, and fully digest-bound", () => {
   const { contract, profile, profileDigest, packs } = fixture();
-  const { plan } = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const { plan } = compileBare({ workContract: contract, profile, profileDigest, packs });
   assert.equal(validateValue("compiled-policy-plan@1", plan).ok, true);
   assert.deepEqual(plan.checks.map((c) => c.checkId), ["base-check", "advisory-check", "dependent-check"]);
   assert.deepEqual(plan.checks.find((c) => c.checkId === "dependent-check").dependsOn, ["base-check"]);
@@ -67,7 +72,7 @@ test("the compiled plan is schema-valid, ordered, and fully digest-bound", () =>
 
 test("profile digest drift fails before anything compiles", () => {
   const { contract, profile, packs } = fixture();
-  const result = compilePlan({ workContract: contract, profile, profileDigest: `sha256:${"f".repeat(64)}`, packs });
+  const result = compileBare({ workContract: contract, profile, profileDigest: `sha256:${"f".repeat(64)}`, packs });
   assert.ok(reasons(result).includes("AUTHORITY_DIGEST_MISMATCH"));
 });
 
@@ -80,7 +85,7 @@ test("pack digest drift fails compilation", () => {
     const drifted = { ...p.value, description: "tampered" };
     return { value: drifted, digest: digestOfCanonical(drifted) };
   });
-  const result = compilePlan({ workContract: contract, profile, profileDigest, packs: tampered });
+  const result = compileBare({ workContract: contract, profile, profileDigest, packs: tampered });
   assert.ok(reasons(result).includes("PACK_DIGEST_MISMATCH"));
 });
 
@@ -104,7 +109,7 @@ test("dependency cycles fail compilation", () => {
   const contract = makeContract({
     policyProfile: { profileId: profile.profileId, path: "policy/profile.json", digest: profileDigest }
   });
-  const result = compilePlan({
+  const result = compileBare({
     workContract: contract,
     profile,
     profileDigest,
@@ -121,7 +126,7 @@ test("duplicate check ids across packs fail compilation", () => {
     },
     mutateProfile: undefined
   });
-  const result = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const result = compileBare({ workContract: contract, profile, profileDigest, packs });
   assert.ok(reasons(result).includes("DUPLICATE_CHECK_ID"));
 });
 
@@ -136,7 +141,7 @@ test("unknown builtin validators fail compilation", () => {
   const contract = makeContract({
     policyProfile: { profileId: profile.profileId, path: "policy/profile.json", digest: profileDigest }
   });
-  const result = compilePlan({
+  const result = compileBare({
     workContract: contract,
     profile,
     profileDigest,
@@ -149,7 +154,7 @@ test("unsatisfied dependencies fail compilation", () => {
   const { contract, profile, profileDigest, packs } = fixture({
     mutateProfile: (p) => ({ ...p, packs: p.packs.filter((s) => s.packId !== "base-pack") })
   });
-  const result = compilePlan({
+  const result = compileBare({
     workContract: contract,
     profile,
     profileDigest,
@@ -162,7 +167,7 @@ test("strengthening ADVISORY to BLOCKING works; weakening is impossible", () => 
   const { contract, profile, profileDigest, packs } = fixture({
     mutateProfile: (p) => ({ ...p, strengthen: ["advisory-check"] })
   });
-  const result = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const result = compileBare({ workContract: contract, profile, profileDigest, packs });
   assert.equal(result.ok, true, JSON.stringify(result.errors ?? []));
   assert.equal(result.plan.checks.find((c) => c.checkId === "advisory-check").effect, "BLOCKING");
 });
@@ -178,7 +183,7 @@ test("strengthening an evidence-only check is a conflict", () => {
   const contract = makeContract({
     policyProfile: { profileId: profile.profileId, path: "policy/profile.json", digest: profileDigest }
   });
-  const result = compilePlan({
+  const result = compileBare({
     workContract: contract,
     profile,
     profileDigest,
@@ -212,13 +217,13 @@ test("a dependency whose check runs after the dependent's earliest check is a ph
         )
       )
   });
-  const result = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const result = compileBare({ workContract: contract, profile, profileDigest, packs });
   assert.ok(reasons(result).includes("PHASE_ORDER_CONFLICT"), JSON.stringify(result.errors ?? "ok"));
 });
 
 test("dependsOn always carries every dependency check — nothing is dropped", () => {
   const { contract, profile, profileDigest, packs } = fixture();
-  const { plan } = compilePlan({ workContract: contract, profile, profileDigest, packs });
+  const { plan } = compileBare({ workContract: contract, profile, profileDigest, packs });
   for (const check of plan.checks.filter((c) => c.packId === "dependent-pack")) {
     assert.deepEqual(check.dependsOn, ["base-check"], check.checkId);
   }
@@ -227,7 +232,7 @@ test("dependsOn always carries every dependency check — nothing is dropped", (
 test("a supplied pack the profile never selected is rejected", () => {
   const { contract, profile, profileDigest, packs } = fixture();
   const extra = pinPacks([makePack({ packId: "uninvited-pack", checks: [makeCheck({ checkId: "uninvited-check" })] })]);
-  const result = compilePlan({
+  const result = compileBare({
     workContract: contract,
     profile,
     profileDigest,

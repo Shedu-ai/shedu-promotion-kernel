@@ -97,10 +97,47 @@ export function profileEntries(pinnedPacks) {
   }));
 }
 
+const GIT_TEST_ENV = {
+  PATH: process.env.PATH,
+  GIT_AUTHOR_NAME: "Kernel Test",
+  GIT_AUTHOR_EMAIL: "kernel-test@example.invalid",
+  GIT_AUTHOR_DATE: "2001-01-01T00:00:00Z",
+  GIT_COMMITTER_NAME: "Kernel Test",
+  GIT_COMMITTER_EMAIL: "kernel-test@example.invalid",
+  GIT_COMMITTER_DATE: "2001-01-01T00:00:00Z",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null"
+};
+
 export function git(repoDir, ...args) {
-  const r = spawnSync("git", ["-C", repoDir, ...args], { encoding: "utf8" });
+  const r = spawnSync("git", ["-C", repoDir, ...args], { encoding: "utf8", env: GIT_TEST_ENV });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
   return r.stdout.trim();
+}
+
+// Commit content through git plumbing, without touching the filesystem —
+// required for hostile fixtures a real checkout cannot represent on this
+// machine (case-colliding paths, symlink blobs, orphan commits).
+export function commitPlumbed(repoDir, entries, message, { parents = "HEAD", remove = [] } = {}) {
+  const head = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "HEAD"], { encoding: "utf8", env: GIT_TEST_ENV });
+  const parentShas = parents === "HEAD" ? (head.status === 0 ? [head.stdout.trim()] : []) : parents;
+  if (head.status === 0) git(repoDir, "read-tree", "HEAD");
+  for (const path of remove) {
+    git(repoDir, "update-index", "--force-remove", path);
+  }
+  for (const entry of entries) {
+    const hashed = spawnSync("git", ["-C", repoDir, "hash-object", "-w", "--stdin"], {
+      input: entry.content,
+      encoding: "utf8",
+      env: GIT_TEST_ENV
+    });
+    if (hashed.status !== 0) throw new Error(`hash-object failed: ${hashed.stderr}`);
+    git(repoDir, "update-index", "--add", "--cacheinfo", `${entry.mode ?? "100644"},${hashed.stdout.trim()},${entry.path}`);
+  }
+  const tree = git(repoDir, "write-tree");
+  const args = ["commit-tree", tree, "-m", message];
+  for (const p of parentShas) args.push("-p", p);
+  return git(repoDir, ...args);
 }
 
 export function makeGitRepo() {

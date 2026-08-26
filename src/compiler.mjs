@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateValue } from "./contracts.mjs";
+import { validateDocument, validateValue } from "./contracts.mjs";
 import { knownBuiltinValidatorIds } from "./builtin-validators.mjs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -8,6 +8,33 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 export const KERNEL_RELEASE = `${pkg.name}@${pkg.version}`;
 
 const PHASES = ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"];
+
+// The four mandatory kernel packs are kernel integrity, not project taste.
+// They ship with the kernel release, are strict-parsed and digest-pinned at
+// load, and are injected into every compilation: a profile cannot omit,
+// re-declare, weaken, or replace them.
+export const MANDATORY_PACK_IDS = Object.freeze([
+  "candidate-identity",
+  "scope-boundary",
+  "validation-plan",
+  "evidence-binding"
+]);
+
+const kernelPacks = MANDATORY_PACK_IDS.map((packId) => {
+  const bytes = readFileSync(new URL(`../packs/${packId}.json`, import.meta.url));
+  const validated = validateDocument("policy-pack@1", bytes);
+  if (!validated.ok) {
+    throw new Error(`kernel pack ${packId} is invalid: ${JSON.stringify(validated.errors)}`);
+  }
+  if (validated.value.packId !== packId) {
+    throw new Error(`kernel pack file ${packId}.json declares packId ${validated.value.packId}`);
+  }
+  return Object.freeze({ value: validated.value, digest: digestOfBytes(bytes) });
+});
+
+export function mandatoryKernelPacks() {
+  return [...kernelPacks];
+}
 
 // Resolve a profile and its packs into a canonical compiled-policy-plan@1.
 // Equal inputs produce byte-identical plan bytes and digest. All compile-time
@@ -19,7 +46,8 @@ export function compilePlan({
   profileDigest,
   packs,
   capabilityIndexDigest = null,
-  builtinValidatorIds = knownBuiltinValidatorIds()
+  builtinValidatorIds = knownBuiltinValidatorIds(),
+  mandatoryPacks = mandatoryKernelPacks()
 }) {
   for (const [kind, value] of [
     ["work-contract@1", workContract],
@@ -53,7 +81,22 @@ export function compilePlan({
     supplied.set(p.value.packId, p);
   }
   const selected = new Map();
+  const mandatoryIds = new Set(mandatoryPacks.map((p) => p.value.packId));
+  for (const p of mandatoryPacks) {
+    selected.set(p.value.packId, p);
+  }
   for (const sel of profile.packs) {
+    if (mandatoryIds.has(sel.packId)) {
+      fail("POLICY_CONFLICT", `pack ${sel.packId} is a mandatory kernel pack: it is injected by the kernel and cannot be re-declared, replaced, or weakened by a profile`);
+    }
+  }
+  for (const p of packs) {
+    if (mandatoryIds.has(p.value.packId)) {
+      fail("POLICY_CONFLICT", `pack ${p.value.packId} is a mandatory kernel pack and cannot be supplied from the target repository`);
+    }
+  }
+  for (const sel of profile.packs) {
+    if (mandatoryIds.has(sel.packId)) continue;
     const p = supplied.get(sel.packId);
     if (!p) {
       fail("PACK_NOT_FOUND", `profile selects ${sel.packId}@${sel.version} but no pack document was supplied`);
@@ -216,9 +259,10 @@ export function compilePlan({
       workContract: digestOfCanonical(workContract),
       profile: profileDigest,
       capabilityIndex: capabilityIndexDigest,
-      packs: [...profile.packs]
-        .sort((a, b) => (a.packId < b.packId ? -1 : 1))
-        .map((s) => ({ packId: s.packId, version: s.version, digest: s.digest }))
+      packs: [
+        ...mandatoryPacks.map((p) => ({ packId: p.value.packId, version: p.value.version, digest: p.digest })),
+        ...profile.packs.map((s) => ({ packId: s.packId, version: s.version, digest: s.digest }))
+      ].sort((a, b) => (a.packId < b.packId ? -1 : 1))
     },
     checks: planChecks
   };

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "evidence-binding",
+  "version": "1.0.0",
+  "description": "Kernel integrity pack: indexes every required result, hashes artifacts, rejects missing or mutated evidence, and binds all results to the same candidate and compiled plan.",
+  "phases": ["PROMOTION_FINALIZATION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "evidence-binding-index",
+      "phase": "PROMOTION_FINALIZATION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "evidence-binding-index@1" },
+      "inputs": ["check-results", "evidence-index"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

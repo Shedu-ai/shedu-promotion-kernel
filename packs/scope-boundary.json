@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "scope-boundary",
+  "version": "1.0.0",
+  "description": "Kernel integrity pack: classifies every changed path against the authorized allowed, readonly, and forbidden sets; readonly, forbidden, unclassified, case-colliding, and symlink-escaping changes block.",
+  "phases": ["CANDIDATE_VALIDATION"],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "scope-boundary-classify",
+      "phase": "CANDIDATE_VALIDATION",
+      "effect": "BLOCKING",
+      "validator": { "kind": "BUILTIN", "builtinId": "scope-boundary-classify@1" },
+      "inputs": ["changed-paths", "scope-sets"],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 300,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}
