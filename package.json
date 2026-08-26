@@ -1,0 +1,18 @@
+{
+  "name": "@shedu/promotion-kernel",
+  "version": "0.0.0-foundation",
+  "description": "Model-independent, evidence-bound promotion kernel for AI-generated software changes",
+  "type": "module",
+  "license": "Apache-2.0",
+  "private": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "shedu-promotion-kernel": "src/cli.mjs"
+  },
+  "scripts": {
+    "subject:probe": "node src/cli.mjs --subject-probe",
+    "test": "node --test"
+  }
+}

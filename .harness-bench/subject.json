@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Shedu-ai/shedu-harness-bench/main/runner/schemas/subject-template.schema.json",
+  "schemaVersion": "harness-bench-subject-template@1",
+  "subjectId": "shedu-promotion-kernel",
+  "repository": "https://github.com/Shedu-ai/shedu-promotion-kernel.git",
+  "subjectKind": "promotion-kernel",
+  "probeArgv": [
+    "node",
+    "src/cli.mjs",
+    "--subject-probe"
+  ],
+  "promotionArgv": null,
+  "capabilities": [
+    "exact-argv@1",
+    "immutable-subject-identity@1",
+    "promotion-kernel-contract@1"
+  ],
+  "implementationStatus": "FOUNDATION_ONLY",
+  "commitShaSource": "RESOLVE_AND_FREEZE_BEFORE_PLAN"
+}
