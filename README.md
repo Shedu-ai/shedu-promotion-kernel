@@ -2,6 +2,9 @@
 
 Shedu Promotion Kernel is a model-independent, evidence-bound gate for AI-generated software changes. Its job is deliberately narrow: decide whether an immutable candidate may be promoted into a target repository.
 
+Shedu Promotion Kernel is a mechanical approval gate for AI-generated code. It evaluates an immutable candidate against an authorized work contract and selected policy packs. It verifies identity and scope, runs required validation, checks for conflicts with existing capabilities, detects orphaned controls, enforces repository-specific architecture rules, and confirms that all required evidence is complete and untampered. It then issues a machine-verifiable PROMOTABLE or BLOCKED receipt.
+The kernel does not generate code or decide what should be built. It determines whether the implementation stayed within its authority and satisfied the mechanical conditions required for promotion.
+
 > **Status: FOUNDATION_ONLY The system is built and has passed several rounds of adversarial testing, but this public version is not yet authorized to approve software changes.
 It runs checks in a tightly controlled environment: programs are verified before execution, network access and file changes are blocked, resource and time limits are enforced, and critical failures stop the process. Every decision is backed by tamper-evident evidence and can be independently verified or digitally signed.
 Before the kernel can enter experimental use, an independent authority must certify a specific clean version using an external signing key. The public repository cannot certify itself, so it correctly refuses to issue promotion approvals.
