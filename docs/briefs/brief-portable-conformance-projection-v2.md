@@ -4,7 +4,7 @@
 
 **Consumer:** private `Shedu-ai/shedu-harness-bench`
 
-**Status:** IMPLEMENTING · zero-provider · 2026-08-27
+**Status:** IMPLEMENTED · zero-provider · local acceptance 221/221 · closeout: [`closeout-portable-conformance-projection-v2.md`](closeout-portable-conformance-projection-v2.md) · 2026-08-27
 
 ## Objective
 
