@@ -11,8 +11,9 @@ does not silently follow a moving branch.
 - No provider account, model API key, database, or network service is used by the kernel.
 - Schema validation, policy compilation, receipt verification, the subject probe, and
   the test suite are provider-free.
-- Target-command evaluation currently requires macOS and an enforceable `sandbox-exec`
-  backend. Other platforms fail closed with `SANDBOX_UNAVAILABLE`.
+- Target-command evaluation supports either macOS with enforceable `sandbox-exec`, or
+  Linux with Docker Engine and the kernel's immutable OCI image installed by digest.
+  Other platforms fail closed with `SANDBOX_UNAVAILABLE`.
 - Target commands may use only the kernel's exact Node interpreter, run without a shell,
   receive no network access, and cannot fork (`maxProcesses` is exactly `1`).
 - The public checkout intentionally reports `FOUNDATION_ONLY`. `evaluate` remains blocked
@@ -34,6 +35,28 @@ npm run subject:probe
 No dependency-install step is required: the package has zero runtime and development
 dependencies. A valid public installation still reports `FOUNDATION_ONLY`; that is the
 expected fail-closed result without external admission material.
+
+### Linux: install the pinned sandbox image
+
+On Linux, Docker must be available at `/usr/bin/docker` or
+`/usr/local/bin/docker` and connected to the local Linux daemon socket. Install
+the one admitted image before running target-command tests or evaluation:
+
+```sh
+npm run sandbox:linux:pull
+```
+
+The installer resolves this exact immutable authority and prints its verified
+local image identity:
+
+```text
+docker.io/library/node@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+```
+
+Evaluation always uses `--pull never`. A missing image, changed runtime, remote
+daemon override, non-Linux daemon, failed isolation probe, or image identity
+drift produces `SANDBOX_UNAVAILABLE`; evaluation never downloads or substitutes
+an image on its own.
 
 ## Option B: pinned target-repository dependency
 

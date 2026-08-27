@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import process from "node:process";
+import { digestOfCanonical } from "./canonical-json.mjs";
+import {
+  LINUX_OCI_NODE_PATH,
+  linuxOciAuthority,
+  verifyLinuxOciAuthority
+} from "./oci-runtime.mjs";
 
 // Control point: the closed toolchain authority.
 export const CONTROL_POINTS = Object.freeze(["toolchain-authority"]);
@@ -22,7 +28,8 @@ export class ToolchainError extends Error {
   }
 }
 
-const KERNEL_NODE_PATH = realpathSync(process.execPath);
+const HOST_KERNEL_NODE_PATH = realpathSync(process.execPath);
+const KERNEL_NODE_PATH = process.platform === "linux" ? LINUX_OCI_NODE_PATH : HOST_KERNEL_NODE_PATH;
 let kernelNodeDigest = null;
 
 function hashFile(path) {
@@ -33,7 +40,15 @@ function hashFile(path) {
 // binary is large and cannot meaningfully be swapped underneath a running
 // process). External/base executables are re-hashed on every use.
 function kernelDigest() {
-  if (kernelNodeDigest === null) kernelNodeDigest = hashFile(KERNEL_NODE_PATH);
+  if (kernelNodeDigest === null) {
+    kernelNodeDigest = process.platform === "linux"
+      ? digestOfCanonical({
+          schemaVersion: "linux-oci-node-identity@1",
+          authorityDigest: linuxOciAuthority().authorityDigest,
+          path: LINUX_OCI_NODE_PATH
+        })
+      : hashFile(KERNEL_NODE_PATH);
+  }
   return kernelNodeDigest;
 }
 
@@ -44,6 +59,7 @@ export function isAdmittedExecutableName(argv0) {
   if (typeof argv0 !== "string" || argv0.length === 0) return false;
   if (argv0 === "node") return true;
   if (isAbsolute(argv0)) {
+    if (process.platform === "linux") return argv0 === LINUX_OCI_NODE_PATH;
     try {
       return realpathSync(argv0) === KERNEL_NODE_PATH;
     } catch {
@@ -82,10 +98,19 @@ export function kernelToolchain() {
     // re-hash on any metadata change. Fails closed on drift.
     verify(entry) {
       if (entry.name === "node") {
-        // Re-derive the digest from disk and compare (kernelDigest is cached
-        // only after a real read; a swapped binary changes size, which a
-        // re-read would surface). We re-hash to be unambiguous.
-        const fresh = hashFile(entry.path);
+        // Linux executes the image's Node, so its identity is the verified
+        // OCI authority plus the fixed in-image path. macOS executes the
+        // host kernel node and re-hashes that exact file before every use.
+        const fresh = process.platform === "linux"
+          ? (() => {
+              const authority = verifyLinuxOciAuthority();
+              return digestOfCanonical({
+                schemaVersion: "linux-oci-node-identity@1",
+                authorityDigest: authority.authorityDigest,
+                path: LINUX_OCI_NODE_PATH
+              });
+            })()
+          : hashFile(entry.path);
         if (fresh !== entry.digest) {
           throw new ToolchainError(`kernel node digest drifted before execution: expected ${entry.digest}, found ${fresh}`);
         }

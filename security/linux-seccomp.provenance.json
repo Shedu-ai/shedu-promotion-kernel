@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "seccomp-provenance@1",
+  "upstreamRepository": "https://github.com/moby/profiles",
+  "upstreamPath": "seccomp/default.json",
+  "upstreamCommit": "3c28324314729dbade8287e868eef6338c42807a",
+  "derivedPolicy": "linux-seccomp.json",
+  "derivation": [
+    "remove-network-syscalls",
+    "remove-process-creation-syscalls",
+    "remove-cross-process-inspection-syscalls",
+    "allow-clone-only-with-clone-thread",
+    "return-enosys-for-clone3"
+  ]
+}

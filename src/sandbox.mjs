@@ -1,7 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { dirname, isAbsolute } from "node:path";
+import { randomBytes } from "node:crypto";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import process from "node:process";
+import {
+  LINUX_OCI_IMAGE,
+  LINUX_OCI_NODE_PATH,
+  LINUX_OCI_SECCOMP_PATH,
+  linuxOciAuthority,
+  ociHostEnvironment,
+  removeLinuxOciContainer,
+  runDockerAuthority
+} from "./oci-runtime.mjs";
 
 // Control points this module implements (discovered mechanically by the
 // control-surface census from the filesystem, independently of any registry).
@@ -28,10 +39,14 @@ export const CONTROL_POINTS = Object.freeze([
 //     - device-file writes stdio needs;
 //   and denies network* and, at the maxProcesses: 1 ceiling, process-fork.
 //
-// The backend is probed once per process by demonstrating a blocked network
-// bind and a blocked out-of-root content read. If isolation cannot be
-// enforced — including a nested-sandbox environment where sandbox-exec cannot
-// run — a target command FAILS CLOSED with SANDBOX_UNAVAILABLE.
+//   linux: a digest-pinned OCI image under a source-closed Docker runtime,
+//   with no network namespace, read-only root and bind mounts, all Linux
+//   capabilities dropped, no-new-privileges, a checked-in seccomp profile,
+//   and process creation denied while Node's existing threads remain usable.
+//
+// The backend is probed once per process by demonstrating the denials and
+// inspecting the effective kernel security state. If isolation cannot be
+// enforced, a target command FAILS CLOSED with SANDBOX_UNAVAILABLE.
 
 export class SandboxUnavailableError extends Error {
   constructor(message) {
@@ -100,10 +115,10 @@ function buildProfile({ singleProcess, executablePath, readRoots, fileLiterals =
 let probed = null;
 
 function probeBackend(probeRunner = defaultProbeRunner) {
-  if (process.platform !== "darwin") {
-    return { available: false, reason: `no enforcing sandbox backend is implemented for ${process.platform}` };
-  }
-  return probeRunner();
+  if (probeRunner !== defaultProbeRunner) return probeRunner();
+  if (process.platform === "darwin") return defaultProbeRunner();
+  if (process.platform === "linux") return defaultLinuxProbeRunner();
+  return { available: false, reason: `no enforcing sandbox backend is implemented for ${process.platform}` };
 }
 
 function defaultProbeRunner() {
@@ -150,6 +165,177 @@ function defaultProbeRunner() {
   return { available: true, reason: null };
 }
 
+function validateLinuxMountPath(path, kind) {
+  if (!isAbsolute(path)) {
+    throw new SandboxUnavailableError(`${kind} must be an absolute path: ${JSON.stringify(path)}`);
+  }
+  if (/[,\u0000-\u001f]/.test(path)) {
+    throw new SandboxUnavailableError(`${kind} cannot be represented by the OCI mount transport: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
+function isWithin(root, path) {
+  const rel = relative(root, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function createReadProjection(cwd, readFiles) {
+  const projection = mkdtempSync(join(tmpdir(), "shedu-oci-projection-"));
+  chmodSync(projection, 0o755);
+  try {
+    for (const source of readFiles) {
+      const rel = relative(cwd, source);
+      if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+        throw new SandboxUnavailableError(`declared read file is outside the command working directory: ${source}`);
+      }
+      const destination = join(projection, rel);
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o755 });
+      copyFileSync(source, destination);
+      chmodSync(destination, 0o444);
+    }
+    return projection;
+  } catch (error) {
+    rmSync(projection, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function attachInvocation(argv, { spawnEnv, cleanup, backend, containerName = null }) {
+  Object.defineProperties(argv, {
+    spawnEnv: { value: spawnEnv, enumerable: false },
+    cleanup: { value: cleanup, enumerable: false },
+    backend: { value: backend, enumerable: false },
+    containerName: { value: containerName, enumerable: false }
+  });
+  return argv;
+}
+
+export function buildLinuxOciInvocation({
+  authority,
+  executablePath,
+  argvTail,
+  readRoots,
+  readFiles,
+  cwd,
+  environment,
+  projectionDir = null,
+  containerName = `shedu-kernel-${randomBytes(12).toString("hex")}`
+}) {
+  if (executablePath !== LINUX_OCI_NODE_PATH) {
+    throw new SandboxUnavailableError(`Linux OCI execution admits only ${LINUX_OCI_NODE_PATH}`);
+  }
+  if (authority.image.reference !== LINUX_OCI_IMAGE) {
+    throw new SandboxUnavailableError("Linux OCI authority does not name the pinned image");
+  }
+  validateLinuxMountPath(cwd, "working directory");
+  const roots = [...new Set(readRoots.map((path) => validateLinuxMountPath(path, "read root")))].sort();
+  const files = [...new Set(readFiles.map((path) => validateLinuxMountPath(path, "read file")))].sort();
+
+  const args = [
+    "run",
+    "--rm",
+    "--pull", "never",
+    "--name", containerName,
+    "--network", "none",
+    "--read-only",
+    "--cap-drop", "ALL",
+    "--security-opt", "no-new-privileges:true",
+    "--security-opt", `seccomp=${LINUX_OCI_SECCOMP_PATH}`,
+    "--pids-limit", "64",
+    "--ipc", "none"
+  ];
+  if (typeof process.getuid === "function" && typeof process.getgid === "function") {
+    args.push("--user", `${process.getuid()}:${process.getgid()}`);
+  }
+  args.push("--workdir", cwd, "--env", "PATH=/usr/local/bin:/usr/bin:/bin");
+
+  // Mount declared roots at their identical absolute paths so the exact
+  // command array needs no path rewriting. If cwd is not covered by a root,
+  // mount a generated projection containing only the exact declared files.
+  for (const root of roots) {
+    args.push("--mount", `type=bind,src=${root},dst=${root},readonly`);
+  }
+  if (!roots.some((root) => isWithin(root, cwd))) {
+    if (!projectionDir) throw new SandboxUnavailableError("a read projection is required for an unmounted working directory");
+    validateLinuxMountPath(projectionDir, "read projection");
+    args.push("--mount", `type=bind,src=${projectionDir},dst=${cwd},readonly`);
+  }
+
+  const targetValues = {};
+  for (const [name, value] of Object.entries(environment)) {
+    if (name === "PATH") continue;
+    targetValues[name] = String(value);
+    args.push("--env", name);
+  }
+  args.push(authority.image.reference, executablePath, ...argvTail);
+
+  const invocation = [authority.runtime.path, ...args];
+  return attachInvocation(invocation, {
+    backend: "linux-oci",
+    containerName,
+    spawnEnv: ociHostEnvironment(targetValues),
+    cleanup: () => removeLinuxOciContainer(containerName)
+  });
+}
+
+function runLinuxProbeScript(authority, script, { cwd, readRoots, environment = {} }) {
+  const projection = readRoots.some((root) => isWithin(root, cwd)) ? null : createReadProjection(cwd, []);
+  const invocation = buildLinuxOciInvocation({
+    authority,
+    executablePath: LINUX_OCI_NODE_PATH,
+    argvTail: ["-e", script],
+    readRoots,
+    readFiles: [],
+    cwd,
+    environment,
+    projectionDir: projection
+  });
+  try {
+    return spawnSync(invocation[0], invocation.slice(1), {
+      encoding: "utf8",
+      env: invocation.spawnEnv,
+      timeout: 30_000,
+      windowsHide: true
+    });
+  } finally {
+    invocation.cleanup();
+    if (projection) rmSync(projection, { recursive: true, force: true });
+  }
+}
+
+function defaultLinuxProbeRunner() {
+  let root;
+  let privateRoot;
+  try {
+    const authority = linuxOciAuthority();
+    root = realpathSync(mkdtempSync(join(tmpdir(), "shedu-oci-probe-")));
+    privateRoot = realpathSync(mkdtempSync(join(tmpdir(), "shedu-oci-private-")));
+    const privateFile = join(privateRoot, "host-secret");
+    writeFileSync(privateFile, "must-not-enter-container");
+    const probes = [
+      ["startup", "process.exit(0)", (r) => !r.error && r.status === 0],
+      ["network", 'const s=require("node:net").createServer();s.on("error",e=>{console.log(e.code);process.exit(e.code==="EPERM"?0:2)});s.listen(0,()=>process.exit(1))', (r) => r.status === 0 && /EPERM/.test(r.stdout)],
+      ["read", 'try{require("node:fs").readFileSync(process.env.HOST_PRIVATE_PATH);process.exit(1)}catch(e){console.log(e.code);process.exit(["ENOENT","EACCES","EPERM"].includes(e.code)?0:2)}', (r) => r.status === 0, { HOST_PRIVATE_PATH: privateFile }],
+      ["write", 'try{require("node:fs").writeFileSync("probe-write","x");process.exit(1)}catch(e){console.log(e.code);process.exit(["EROFS","EACCES","EPERM"].includes(e.code)?0:2)}', (r) => r.status === 0],
+      ["fork", 'const r=require("node:child_process").spawnSync(process.execPath,["-e","0"]);console.log(r.error?.code||"FORKED");process.exit(r.error?0:1)', (r) => r.status === 0 && !/FORKED/.test(r.stdout)],
+      ["kernel-state", 'const s=require("node:fs").readFileSync("/proc/self/status","utf8");const v=Object.fromEntries(s.split("\\n").map(x=>x.split(/:\\s*/)).filter(x=>x.length===2));console.log(JSON.stringify({cap:v.CapEff,nnp:v.NoNewPrivs,seccomp:v.Seccomp}));process.exit(v.CapEff==="0000000000000000"&&v.NoNewPrivs==="1"&&v.Seccomp==="2"?0:1)', (r) => r.status === 0]
+    ];
+    for (const [name, script, passed, environment = {}] of probes) {
+      const result = runLinuxProbeScript(authority, script, { cwd: root, readRoots: [root], environment });
+      if (!passed(result)) {
+        return { available: false, reason: `Linux OCI ${name} probe failed: ${result.error ?? result.stderr ?? result.stdout}` };
+      }
+    }
+    return { available: true, reason: null, backend: "linux-oci", authorityDigest: authority.authorityDigest };
+  } catch (error) {
+    return { available: false, reason: `Linux OCI sandbox unavailable: ${error}` };
+  } finally {
+    if (root) rmSync(root, { recursive: true, force: true });
+    if (privateRoot) rmSync(privateRoot, { recursive: true, force: true });
+  }
+}
+
 export function sandboxStatus() {
   if (probed === null) probed = probeBackend();
   return probed;
@@ -161,7 +347,7 @@ export function sandboxStatus() {
 // path-contained roots the command may READ (candidate and base
 // materializations). Throws SandboxUnavailableError when isolation cannot be
 // enforced — including a process ceiling this backend cannot cap exactly.
-export function isolateExecution({ executablePath, argvTail, maxProcesses, readRoots = [], readFiles = [], cwd = process.cwd() }) {
+export function isolateExecution({ executablePath, argvTail, maxProcesses, readRoots = [], readFiles = [], cwd = process.cwd(), environment = {} }) {
   const status = sandboxStatus();
   if (!status.available) {
     throw new SandboxUnavailableError(`target-command isolation unavailable: ${status.reason}`);
@@ -176,6 +362,38 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
   }
   if (!isAbsolute(executablePath)) {
     throw new SandboxUnavailableError(`executable must be an absolute resolved path: ${JSON.stringify(executablePath)}`);
+  }
+
+  if (process.platform === "linux") {
+    const realCwd = realpathSync(cwd);
+    const realRoots = readRoots.map((root) => realpathSync(root));
+    const realFiles = readFiles.map((file) => realpathSync(file));
+    const needsProjection = !realRoots.some((root) => isWithin(root, realCwd));
+    const projection = needsProjection ? createReadProjection(realCwd, realFiles) : null;
+    try {
+      const invocation = buildLinuxOciInvocation({
+        authority: linuxOciAuthority(),
+        executablePath,
+        argvTail,
+        readRoots: realRoots,
+        readFiles: realFiles,
+        cwd: realCwd,
+        environment,
+        projectionDir: projection
+      });
+      const cleanup = invocation.cleanup;
+      Object.defineProperty(invocation, "cleanup", {
+        value: () => {
+          cleanup();
+          if (projection) rmSync(projection, { recursive: true, force: true });
+        },
+        enumerable: false
+      });
+      return invocation;
+    } catch (error) {
+      if (projection) rmSync(projection, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   const grantedReadRoots = new Set();
@@ -238,7 +456,11 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
     fileLiterals: [...fileLiterals],
     dirLiterals: [...dirLiterals]
   });
-  return ["sandbox-exec", "-p", profile, executablePath, ...argvTail];
+  return attachInvocation(["sandbox-exec", "-p", profile, executablePath, ...argvTail], {
+    backend: "darwin-sandbox-exec",
+    spawnEnv: environment,
+    cleanup: () => {}
+  });
 }
 
 // Test seam: force a probe result (null re-probes on next use), or run the

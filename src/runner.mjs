@@ -97,25 +97,31 @@ export function runTargetCommand({
   const realReadRoots = readRoots.map((r) => realpathSync(r));
   const realReadFiles = readFiles.map((f) => realpathSync(f));
 
+  const env = buildCleanEnvironment({ envAllowlist, injectEnv });
   const isolated = isolateExecution({
     executablePath: resolved.path,
     argvTail: argv.slice(1),
     maxProcesses,
     readRoots: realReadRoots,
     readFiles: realReadFiles,
-    cwd: realCwd
-  });
-  const env = buildCleanEnvironment({ envAllowlist, injectEnv });
-  const spawned = spawnSync(isolated[0], isolated.slice(1), {
     cwd: realCwd,
-    env,
-    shell: false,
-    windowsHide: true,
-    timeout: timeoutMs,
-    killSignal: "SIGKILL",
-    maxBuffer: maxOutputBytes,
-    encoding: "buffer"
+    environment: env
   });
+  let spawned;
+  try {
+    spawned = spawnSync(isolated[0], isolated.slice(1), {
+      cwd: realCwd,
+      env: isolated.spawnEnv ?? env,
+      shell: false,
+      windowsHide: true,
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+      maxBuffer: maxOutputBytes,
+      encoding: "buffer"
+    });
+  } finally {
+    isolated.cleanup?.();
+  }
 
   const timedOut = spawned.error?.code === "ETIMEDOUT";
   const clamp = (buffer) => {

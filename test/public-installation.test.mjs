@@ -72,4 +72,6 @@ test("public README links the installation guide and executable sample", () => {
   assert.match(install, /npm run verify:sample-policy/);
   assert.match(install, /FULL_40_CHARACTER_COMMIT/);
   assert.match(install, /FOUNDATION_ONLY/);
+  assert.match(install, /npm run sandbox:linux:pull/);
+  assert.match(install, /sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5/);
 });
