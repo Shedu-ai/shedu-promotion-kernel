@@ -46,9 +46,30 @@ test("hostile argv round-trips byte-for-byte with no shell interpretation", () =
 test("a shell-string command is an executable name, never a shell line", () => {
   const execution = runTargetCommand({ ...DEFAULTS, argv: ["echo $HOME && rm -rf /"] });
   assert.equal(execution.succeeded, false);
-  // The sandbox launcher fails to exec the nonexistent binary; either way,
-  // nothing shell-interprets the string.
-  assert.notEqual(execution.report.exitCode, 0);
+  // The closed toolchain refuses the string outright — it is not the kernel
+  // node — so nothing is spawned and nothing shell-interprets it.
+  assert.equal(execution.toolchainRejected, true);
+  assert.equal(execution.report, null);
+});
+
+test("a poisoned PATH cannot substitute the executable; a mutable external validator is refused", () => {
+  // argv[0] "node" always resolves to the KERNEL node regardless of PATH.
+  const poisoned = { ...process.env, PATH: `/tmp/evil:${process.env.PATH}` };
+  const original = process.env.PATH;
+  process.env.PATH = poisoned.PATH;
+  try {
+    const ok = runTargetCommand({ ...DEFAULTS, argv: ["node", "-e", "process.stdout.write('KERNEL')"] });
+    assert.equal(ok.succeeded, true);
+    assert.equal(ok.stdout.toString(), "KERNEL");
+    assert.match(ok.report.executable.name, /node/);
+  } finally {
+    process.env.PATH = original;
+  }
+  // An absolute mutable external path and a home-dir executable are refused.
+  for (const p of ["/tmp/mutable-validator", `${process.env.HOME}/evil-node`]) {
+    const rejected = runTargetCommand({ ...DEFAULTS, argv: [p] });
+    assert.equal(rejected.toolchainRejected, true, p);
+  }
 });
 
 test("the sandbox denies network access to target commands", () => {

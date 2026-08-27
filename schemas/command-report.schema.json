@@ -5,7 +5,7 @@
   "description": "Machine report for one exact-argv command execution. Deliberately excludes wall-clock timing so equal inputs produce byte-identical reports; timing lives in the check result timestamps.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "commandId", "phase", "argv", "exitCode", "signal", "timedOut", "stdout", "stderr"],
+  "required": ["schemaVersion", "commandId", "phase", "argv", "executable", "exitCode", "signal", "timedOut", "stdout", "stderr"],
   "properties": {
     "schemaVersion": {"const": "command-report@1"},
     "commandId": {"$ref": "#/$defs/kebabId"},
@@ -15,6 +15,15 @@
       "minItems": 1,
       "maxItems": 64,
       "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "executable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
     },
     "exitCode": {
       "oneOf": [{"type": "null"}, {"type": "integer", "minimum": 0, "maximum": 255}]

@@ -124,3 +124,46 @@ Six findings were closed with engineered fixes and hostile regression tests
 
 Native run: darwin with `sandbox-exec`; nested-sandbox refusal is exercised
 via an injected probe runner. Resulting subject status: FOUNDATION_ONLY.
+
+## Correction round 3 (adversarial re-review)
+
+Seven findings closed with engineered mechanisms and hostile tests:
+
+1. **Executable-derived filesystem widening** - `src/toolchain.mjs` is a closed
+   executable authority: ambient PATH is never consulted, no directory prefix
+   is derived from an executable, only the kernel node (and base-hash-bound
+   scripts) is admitted, granted as an EXACT FILE and content-digest-verified
+   before execution. Proof: `test/toolchain.test.mjs`, `test/runner.test.mjs`;
+   the custom-prefix sibling-secret exfil is toolchain-rejected (no leak).
+2. **Unbound validator identity** - `targetValidatorDigest` binds argv +
+   resolved executable digest + toolchain-authority digest + trusted-base
+   script blobs, with NO argv-only fallback; the compiler rejects a
+   non-toolchain executable. Proof: `test/toolchain.test.mjs`.
+3. **String-occurrence census** - replaced with a RUNTIME control census
+   (`src/control-census.mjs`, `src/control-proofs.mjs`,
+   `src/control-runtime.mjs`): each control's proof is executed, results are
+   recorded into a registration-gated ledger, and closure needs
+   registration == source discovery == executed proofs. A branded admission
+   outcome (`src/admission.mjs`) + branded disposition (`src/reducer.mjs`) +
+   a source architecture fence (`src/architecture-fence.mjs`) defeat the
+   unconditional-admission bypass at runtime and in source. Proof:
+   `test/control-census.test.mjs`.
+4. **External admission packaging** - the trusted key, detached attestation,
+   and expected frozen commit are supplied EXTERNALLY (env/CLI), never from
+   subject source; admission verifies a clean working tree at the attested
+   commit. Proof: `test/attestation.test.mjs`. Shipped state stays
+   FOUNDATION_ONLY (no external key).
+5. **Hard deadline** - `src/supervisor.mjs` runs the complete public
+   evaluation in a worker bounded by a hard monotonic wall-clock deadline;
+   a runaway synchronous stall is SIGKILLed at the ceiling and yields no
+   promotable receipt. Proof: `test/supervisor.test.mjs` (narrow tolerance).
+6. **Authorization trust** - `src/authorization.mjs` verifies against the
+   base-authoritative profile trust root (SIGNED / UNSIGNED_PERSONAL modes),
+   not the embedded key. Proof: `test/enforcement.test.mjs`.
+7. **Binary source contamination** - the sandbox control-char regex now uses
+   the textual escape form; a test asserts all source/schema/registry files
+   are valid UTF-8 with no NUL and that git classifies `sandbox.mjs` as text.
+
+Threat boundary: a subject repository cannot prove arbitrary malicious
+modifications to itself; Harness Bench's external frozen-commit verification
+remains the ultimate authority. Resulting subject status: FOUNDATION_ONLY.

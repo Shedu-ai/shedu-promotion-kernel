@@ -56,9 +56,11 @@ test("a wall-clock deadline is enforced at the point of exhaustion", () => {
   // could not complete within budget.
   const vp = outcome.receipt.checkResults.find((r) => r.checkId === "validation-plan-validation");
   assert.notEqual(vp.outcome, "PASS");
-  // Wall-clock is bounded near the ceiling — not the ~1.4s two full sleeps
-  // would take, and well under a runaway.
-  assert.ok(elapsedMs < 2500, `evaluation ran ${Math.round(elapsedMs)}ms; deadline not enforced at exhaustion`);
+  // Cooperative layer: command execution is bounded by the remaining budget,
+  // so the two 700ms commands cannot both complete. The HARD whole-evaluation
+  // bound (worker supervisor) is proven with a narrow tolerance in
+  // test/supervisor.test.mjs.
+  assert.ok(elapsedMs < 1900, `command execution ran ${Math.round(elapsedMs)}ms; cooperative deadline not enforced`);
 });
 
 // ---- Finding 5 audit: artifactRoot is load-bearing ---------------------
@@ -163,22 +165,53 @@ function signContract(workContract, privateKeyPem) {
   };
 }
 
+function keyPairHex() {
+  const pem = generateSigningKeyPem();
+  const pub = createPublicKey(createPrivateKey(pem)).export({ format: "jwk" });
+  return { pem, publicKeyHex: Buffer.from(pub.x, "base64url").toString("hex") };
+}
+
+const UNSIGNED_PERSONAL = { mode: "UNSIGNED_PERSONAL", trustedAuthorizers: [] };
+
+test("authorization is verified against a trusted authorizer set, not the embedded key", () => {
+  const trusted = keyPairHex();
+  const untrusted = keyPairHex();
+  const SIGNED = { mode: "SIGNED", trustedAuthorizers: [{ identity: "example-authorizer", publicKey: trusted.publicKeyHex }] };
+
+  // Unsigned under SIGNED governance: rejected.
+  assert.equal(verifyContractAuthorization(makeContract(), SIGNED).ok, false);
+
+  // A self-signed contract from an UNTRUSTED key under SIGNED governance:
+  // integrity is valid but the key is not a trusted authorizer → rejected.
+  const selfSigned = signContract(makeContract(), untrusted.pem);
+  const selfVerdict = verifyContractAuthorization(selfSigned, SIGNED);
+  assert.equal(selfVerdict.ok, false);
+  assert.equal(selfVerdict.reasonCode, "AUTHORIZATION_INVALID");
+
+  // A correct signature from a TRUSTED key with the matching identity: accepted.
+  const good = signContract(makeContract({ authorization: { identity: "example-authorizer", issuedAt: "2026-08-26T00:00:00Z", signature: null } }), trusted.pem);
+  const goodVerdict = verifyContractAuthorization(good, SIGNED);
+  assert.equal(goodVerdict.ok, true, JSON.stringify(goodVerdict));
+  assert.equal(goodVerdict.authenticated, true);
+
+  // Identity/key mismatch: trusted key but the contract claims a different
+  // identity than the authorizer bound to that key → rejected.
+  const mismatch = signContract(makeContract({ authorization: { identity: "someone-else", issuedAt: "2026-08-26T00:00:00Z", signature: null } }), trusted.pem);
+  assert.equal(verifyContractAuthorization(mismatch, SIGNED).ok, false);
+
+  // Tampered body: signature no longer matches → rejected even before trust.
+  const tampered = { ...good, objectiveId: "tampered-objective" };
+  assert.equal(verifyContractAuthorization(tampered, SIGNED).ok, false);
+
+  // Explicit unsigned-personal policy: an unsigned contract is accepted, but
+  // NOT marked authenticated.
+  const personal = verifyContractAuthorization(makeContract(), UNSIGNED_PERSONAL);
+  assert.equal(personal.ok, true);
+  assert.equal(personal.authenticated, false);
+});
+
 test("a present but invalid contract authorization signature is rejected", () => {
-  // No signature: accepted (identity still binds provenance).
-  assert.equal(verifyContractAuthorization(makeContract()).ok, true);
-
-  // A validly self-signed contract: the field is consistent.
-  const keyPem = generateSigningKeyPem();
-  const signed = signContract(makeContract(), keyPem);
-  assert.equal(verifyContractAuthorization(signed).ok, true);
-
-  // Tamper the body after signing: signature no longer matches → rejected.
-  const tampered = { ...signed, objectiveId: "tampered-objective" };
-  const bad = verifyContractAuthorization(tampered);
-  assert.equal(bad.ok, false);
-  assert.equal(bad.reasonCode, "AUTHORIZATION_INVALID");
-
-  // Garbage signature bytes → rejected, not inert.
+  // Garbage signature bytes → rejected, not inert, under any mode.
   const garbage = {
     ...makeContract(),
     authorization: {
@@ -187,9 +220,11 @@ test("a present but invalid contract authorization signature is rejected", () =>
       signature: { algorithm: "ed25519", publicKey: "0".repeat(64), signature: "0".repeat(128) }
     }
   };
-  assert.equal(verifyContractAuthorization(garbage).ok, false);
+  assert.equal(verifyContractAuthorization(garbage, UNSIGNED_PERSONAL).ok, false);
 
-  // And the whole evaluation refuses a contract with a bad signature.
+  // The whole evaluation refuses a contract with a bad signature (the default
+  // profile is UNSIGNED_PERSONAL, and a present-but-invalid signature still
+  // fails closed).
   const target = buildTargetRepo();
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
   const candidate = commitAll(target.repoDir, "feature");

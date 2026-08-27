@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
 import { validateDocument, validateValue } from "./contracts.mjs";
 import { knownBuiltinValidatorIds } from "./builtin-validators.mjs";
+import { isResolvableTargetExecutable } from "./validator-digest.mjs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -189,6 +190,13 @@ export function compilePlan({
       }
       if (check.validator.kind === "BUILTIN" && !builtinValidatorIds.has(check.validator.builtinId)) {
         fail("UNKNOWN_VALIDATOR", `check ${check.checkId} references unknown builtin validator ${check.validator.builtinId}`);
+      }
+      // A target command's executable must be admitted by the closed
+      // toolchain authority: an absolute/mutable external validator or a
+      // bare non-node name has no admissible identity and is rejected before
+      // any candidate command runs.
+      if (check.validator.kind === "TARGET_COMMAND" && !isResolvableTargetExecutable(check.validator.argv[0])) {
+        fail("UNKNOWN_VALIDATOR", `check ${check.checkId} target command executable ${JSON.stringify(check.validator.argv[0])} is not an admitted toolchain executable`);
       }
     }
   }

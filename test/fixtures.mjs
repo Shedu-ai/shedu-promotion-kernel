@@ -44,6 +44,7 @@ export function makeProfile(packEntries, overrides = {}) {
     profileId: "example-profile",
     version: "1.0.0",
     description: "Example profile",
+    authorization: { mode: "UNSIGNED_PERSONAL", trustedAuthorizers: [] },
     packs: packEntries,
     strengthen: [],
     ...overrides

@@ -2,20 +2,22 @@ import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { digestOfBytes } from "./canonical-json.mjs";
 import { isSecretEnvName, validateValue } from "./contracts.mjs";
-import { isolateArgv } from "./sandbox.mjs";
+import { isolateExecution } from "./sandbox.mjs";
+import { kernelToolchain, ToolchainError } from "./toolchain.mjs";
 
 // Control point: output ceiling is enforced here by clamping captured bytes.
 export const CONTROL_POINTS = Object.freeze(["command-output-ceiling"]);
 
-// Exact-argv target-command runner. Never a shell: argv[0] is the executable
-// and every element is passed byte-for-byte. Every command executes inside
-// the mandatory OS sandbox (no network, read-only filesystem, fork denial
-// under the process ceiling) — if isolation cannot be enforced, nothing
-// runs. The environment is additionally constructed from scratch — PATH,
-// explicitly allowlisted names copied from the host, and kernel-injected
-// variables — so ambient secrets are never inherited. Execution is bounded
-// by a hard timeout and an output byte ceiling, and the result is a
-// schema-validated command-report@1 whose argv echo proves preservation.
+// Exact-argv target-command runner. Never a shell: the DECLARED argv is
+// preserved byte-for-byte in the command report, while the EXECUTABLE is
+// resolved through the closed toolchain authority (never ambient PATH), its
+// content digest verified immediately before execution, and the concrete
+// absolute executable used as transport. Every command executes inside the
+// mandatory OS sandbox (no network, default-deny reads confined to the
+// executable file + declared roots, read-only FS, fork denial). The
+// environment is constructed from scratch so ambient secrets are never
+// inherited. Execution is bounded by the remaining evaluation budget (ms) and
+// an output byte ceiling; the result is a schema-validated command-report@1.
 
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
@@ -36,8 +38,7 @@ export function buildCleanEnvironment({ envAllowlist = [], injectEnv = {}, hostE
   return env;
 }
 
-function streamReport(buffer, overflowed) {
-  const bytes = buffer ?? Buffer.alloc(0);
+function streamReport(bytes, overflowed) {
   return {
     digest: digestOfBytes(bytes),
     byteLength: bytes.length,
@@ -55,7 +56,8 @@ export function runTargetCommand({
   timeoutMs,
   maxOutputBytes,
   maxProcesses,
-  readRoots = []
+  readRoots = [],
+  toolchain = kernelToolchain()
 }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) {
     throw new Error("argv must be a non-empty array of non-empty strings");
@@ -67,19 +69,40 @@ export function runTargetCommand({
     throw new Error("maxOutputBytes must be a positive integer");
   }
 
-  // Canonicalize the working directory and read roots to their real paths so
-  // the child never traverses a symlink (e.g. macOS /var -> /private/var)
-  // that the sandbox profile does not grant.
+  // Resolve the executable through the closed toolchain and verify its
+  // content digest immediately before execution. An unadmitted executable
+  // (bare non-node, PATH-poisoned node, user-dir or mutable external path) is
+  // refused here; nothing runs unresolved.
+  let resolved;
+  try {
+    resolved = toolchain.resolve(argv[0]);
+    toolchain.verify(resolved);
+  } catch (error) {
+    if (error instanceof ToolchainError) {
+      return {
+        report: null,
+        stdout: Buffer.alloc(0),
+        stderr: Buffer.alloc(0),
+        spawnFailed: true,
+        toolchainRejected: true,
+        spawnError: String(error),
+        succeeded: false
+      };
+    }
+    throw error;
+  }
+
   const realCwd = realpathSync(cwd);
   const realReadRoots = readRoots.map((r) => realpathSync(r));
 
-  // The report echoes the exact declared argv; isolation is transport.
-  // isolateArgv throws SandboxUnavailableError when enforcement is
-  // impossible — nothing runs unsandboxed.
-  const isolated = isolateArgv(argv, { maxProcesses, readRoots: realReadRoots, cwd: realCwd });
+  const isolated = isolateExecution({
+    executablePath: resolved.path,
+    argvTail: argv.slice(1),
+    maxProcesses,
+    readRoots: realReadRoots,
+    cwd: realCwd
+  });
   const env = buildCleanEnvironment({ envAllowlist, injectEnv });
-  // The child is bounded by the remaining evaluation budget, in
-  // milliseconds — never a rounded-up fresh timeout.
   const spawned = spawnSync(isolated[0], isolated.slice(1), {
     cwd: realCwd,
     env,
@@ -92,8 +115,6 @@ export function runTargetCommand({
   });
 
   const timedOut = spawned.error?.code === "ETIMEDOUT";
-  // spawnSync kills at maxBuffer but the captured buffer can exceed the
-  // ceiling by up to one pipe read; the bound is enforced here by clamping.
   const clamp = (buffer) => {
     const bytes = buffer ?? Buffer.alloc(0);
     return bytes.length > maxOutputBytes
@@ -109,6 +130,7 @@ export function runTargetCommand({
     commandId,
     phase,
     argv: [...argv],
+    executable: { name: resolved.name, digest: resolved.digest },
     exitCode: typeof spawned.status === "number" ? spawned.status & 0xff : null,
     signal: spawned.signal ?? null,
     timedOut,
@@ -124,6 +146,7 @@ export function runTargetCommand({
     stdout: stdout.bytes,
     stderr: stderr.bytes,
     spawnFailed,
+    toolchainRejected: false,
     spawnError: spawnFailed ? String(spawned.error) : null,
     succeeded: !spawnFailed && !timedOut && !overflowed && spawned.status === 0
   };

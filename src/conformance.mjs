@@ -185,6 +185,7 @@ function buildSyntheticTarget({
     profileId: "conformance-profile",
     version: "1.0.0",
     description: "conformance profile",
+    authorization: { mode: "UNSIGNED_PERSONAL", trustedAuthorizers: [] },
     packs: packSelections,
     strengthen: []
   };

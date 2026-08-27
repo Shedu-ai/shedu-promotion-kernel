@@ -1,21 +1,24 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { createControlLedger } from "./control-runtime.mjs";
+import { CONTROL_PROOFS } from "./control-proofs.mjs";
 
-// Control-surface census. Unlike the policy-plan mechanism census (which sees
-// only checks dispatched by a compiled plan), this census inventories EVERY
-// disposition- or admission-affecting control in the kernel, including
-// infrastructure controls introduced outside any plan (sandbox isolation,
-// resource ceilings, the deadline, halt routing, activation/receipt
-// verification, and admission).
+// Control-surface census — RUNTIME closure, not string occurrence.
 //
-// The two sides are derived from INDEPENDENT mechanical sources:
-//   - implementation:  discovered by scanning source for `CONTROL_POINTS`
-//                      exports on the filesystem;
-//   - registration:    the hand-authored control-surface@1 registry.
-// The census requires the two sets to be equal — a newly exported control
-// with no registry row, or a registry row with no implementation, fails —
-// and requires every registered control to have an invocation symbol present
-// in source and proving tests present in the test suite.
+// Three surfaces are derived INDEPENDENTLY:
+//   - registration:   the control-surface@1 registry (hand-authored);
+//   - implementation: control ids discovered by scanning source for
+//                     `CONTROL_POINTS` exports (a filesystem lint);
+//   - runtime:        each control's executable proof is RUN, and its result
+//                     recorded into a registration-gated control ledger.
+//
+// The census is complete only when registration == implementation, every
+// registered control has an executable proof that PASSES when run, and the
+// ledger (which refuses events for unregistered controls) records an invoked,
+// evidenced, disposition-effect-tagged event for each. A control removed from
+// the registry cannot emit a ledger event; a registered control that is not
+// invoked or whose runtime proof fails (e.g. a sandbox denial was removed)
+// fails closure. Static discovery is retained ONLY as a supplemental lint.
 
 function listFiles(dir, ext) {
   const out = [];
@@ -27,8 +30,6 @@ function listFiles(dir, ext) {
   return out;
 }
 
-// Independent implementation surface: every control id exported as a member
-// of a `CONTROL_POINTS` array literal anywhere under srcDir.
 export function discoverControlPoints(srcDir) {
   const discovered = new Map();
   for (const file of listFiles(srcDir, ".mjs")) {
@@ -44,39 +45,55 @@ export function discoverControlPoints(srcDir) {
   return discovered;
 }
 
-export function runControlCensus({ srcDir, testDir, registry }) {
+// proofs is injectable so tests can exercise a removed-denial proof failure.
+export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS }) {
   const discovered = discoverControlPoints(srcDir);
-  const registeredIds = new Map(registry.controls.map((c) => [c.id, c]));
-
-  const srcConcat = listFiles(srcDir, ".mjs")
-    .map((f) => readFileSync(f, "utf8"))
-    .join("\n");
-  const testConcat = listFiles(testDir, ".mjs")
-    .map((f) => readFileSync(f, "utf8"))
-    .join("\n");
-
+  const registeredIds = registry.controls.map((c) => c.id);
+  const registeredSet = new Set(registeredIds);
   const findings = [];
 
-  // Independence check: the two mechanically-derived sets must be equal.
+  // Independent-surface equality: registration vs source implementation.
   for (const [id, file] of discovered) {
-    if (!registeredIds.has(id)) {
+    if (!registeredSet.has(id)) {
       findings.push({ id, reasonCode: "CONTROL_UNREGISTERED", message: `control ${id} is exported by ${file} but has no control-surface registry row` });
     }
   }
   for (const control of registry.controls) {
     if (!discovered.has(control.id)) {
       findings.push({ id: control.id, reasonCode: "CONTROL_UNIMPLEMENTED", message: `control ${control.id} is registered but no source exports it as a CONTROL_POINT` });
+    }
+  }
+
+  // Runtime closure: run each registered control's proof, record into the
+  // registration-gated ledger.
+  const ledger = createControlLedger(registeredIds);
+  for (const control of registry.controls) {
+    if (!discovered.has(control.id)) continue;
+    const proof = proofs[control.id];
+    if (typeof proof !== "function") {
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} has no executable runtime proof` });
       continue;
     }
-    // Invocation/dispatch evidence.
-    if (!srcConcat.includes(control.invocationSymbol)) {
-      findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} invocation symbol ${JSON.stringify(control.invocationSymbol)} appears nowhere in source` });
+    let result;
+    try {
+      result = proof();
+    } catch (error) {
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} runtime proof threw: ${String(error)}` });
+      continue;
     }
-    // Proving-test evidence (planted firing / conforming proof).
-    for (const testName of control.provingTests) {
-      if (!testConcat.includes(testName)) {
-        findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} proving test ${JSON.stringify(testName)} is absent from the test suite` });
-      }
+    if (!result || result.passed !== true) {
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} runtime proof did not pass` });
+      continue;
+    }
+    // The ledger refuses events for unregistered controls; recording here is
+    // itself a closure check.
+    ledger.record({ controlId: control.id, invocation: "runtime-proof", outcome: "PASS", evidence: result.detail ?? null, consumer: "control-census", dispositionEffect: control.dispositionEffect, proven: true });
+  }
+
+  const proven = ledger.proven();
+  for (const id of registeredIds) {
+    if (registeredSet.has(id) && discovered.has(id) && !proven.has(id) && !findings.some((f) => f.id === id)) {
+      findings.push({ id, reasonCode: "CONTROL_UNPROVEN", message: `control ${id} produced no runtime ledger event` });
     }
   }
 
@@ -84,7 +101,9 @@ export function runControlCensus({ srcDir, testDir, registry }) {
     schemaVersion: "control-census@1",
     complete: findings.length === 0,
     discovered: [...discovered.keys()].sort(),
-    registered: [...registeredIds.keys()].sort(),
+    registered: [...registeredIds].sort(),
+    proven: [...proven].sort(),
+    ledgerEvents: ledger.events().length,
     findings: findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   };
 }

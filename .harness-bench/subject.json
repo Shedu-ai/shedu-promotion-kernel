@@ -15,6 +15,11 @@
     "src/cli.mjs",
     "conformance"
   ],
+  "admittedPromotionArgv": [
+    "node",
+    "src/cli.mjs",
+    "evaluate"
+  ],
   "capabilities": [
     "exact-argv@1",
     "immutable-subject-identity@1",

@@ -2,145 +2,123 @@
   "schemaVersion": "control-surface@1",
   "controls": [
     {
-      "id": "sandbox-network-isolation",
-      "kind": "isolation",
-      "definedIn": "src/sandbox.mjs",
-      "invocationSymbol": "isolateArgv(",
-      "provingTests": ["the sandbox denies network access to target commands"],
+      "id": "activation-verification",
+      "kind": "verification",
+      "definedIn": "src/activation.mjs",
       "dispositionEffect": true
     },
     {
-      "id": "sandbox-read-isolation",
-      "kind": "isolation",
-      "definedIn": "src/sandbox.mjs",
-      "invocationSymbol": "isolateArgv(",
-      "provingTests": [
-        "the sandbox denies reads outside declared roots",
-        "permitted candidate and base reads succeed under the sandbox"
-      ],
-      "dispositionEffect": true
-    },
-    {
-      "id": "sandbox-write-isolation",
-      "kind": "isolation",
-      "definedIn": "src/sandbox.mjs",
-      "invocationSymbol": "isolateArgv(",
-      "provingTests": ["the sandbox makes the filesystem read-only for target commands"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "sandbox-process-ceiling",
-      "kind": "isolation",
-      "definedIn": "src/sandbox.mjs",
-      "invocationSymbol": "isolateArgv(",
-      "provingTests": ["the process ceiling is enforced: fork denial at 1, refusal above 1"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "command-output-ceiling",
-      "kind": "ceiling",
-      "definedIn": "src/runner.mjs",
-      "invocationSymbol": "runTargetCommand(",
-      "provingTests": ["output beyond the byte ceiling is bounded and reported as truncated"],
-      "dispositionEffect": false
-    },
-    {
-      "id": "evaluation-deadline",
-      "kind": "ceiling",
-      "definedIn": "src/deadline.mjs",
-      "invocationSymbol": "createDeadline(",
-      "provingTests": ["a wall-clock deadline is enforced at the point of exhaustion"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "evidence-artifact-ceiling",
-      "kind": "ceiling",
-      "definedIn": "src/evidence.mjs",
-      "invocationSymbol": "maxTotalBytes",
-      "provingTests": ["the cumulative evidence ceiling is enforced"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "containment-halt-routing",
-      "kind": "routing",
-      "definedIn": "src/evaluate.mjs",
-      "invocationSymbol": "INTEGRITY_HALT_CHECK_IDS",
-      "provingTests": ["a scope violation halts the run and skips remaining checks"],
+      "id": "architecture-fence",
+      "kind": "fence",
+      "definedIn": "src/architecture-fence.mjs",
       "dispositionEffect": true
     },
     {
       "id": "artifact-root-enforcement",
       "kind": "routing",
       "definedIn": "src/evaluate.mjs",
-      "invocationSymbol": "artifactRootRel",
-      "provingTests": ["evidence is written under the contract artifactRoot and recorded in the receipt"],
       "dispositionEffect": false
     },
     {
-      "id": "phase-scheduled-execution",
-      "kind": "scheduling",
-      "definedIn": "src/validators/validation-plan.mjs",
-      "invocationSymbol": "phaseCommands",
-      "provingTests": ["commands execute only in their declared phase"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "disposition-reduction",
-      "kind": "verification",
-      "definedIn": "src/reducer.mjs",
-      "invocationSymbol": "reduceDisposition(",
-      "provingTests": ["all bound passing results yield PROMOTABLE, consumed in plan order"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "activation-verification",
-      "kind": "verification",
-      "definedIn": "src/activation.mjs",
-      "invocationSymbol": "verifyActivationPair(",
-      "provingTests": ["verified activation-pair evidence entitles INTEGRATED status; a forged pair does not"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "receipt-verification",
-      "kind": "verification",
-      "definedIn": "src/receipt.mjs",
-      "invocationSymbol": "verifyReceipt(",
-      "provingTests": ["an honest receipt verifies offline, with and without its evidence store"],
-      "dispositionEffect": true
-    },
-    {
-      "id": "receipt-signing",
-      "kind": "verification",
-      "definedIn": "src/receipt.mjs",
-      "invocationSymbol": "signReceipt(",
-      "provingTests": ["signing round-trips; any mutation after signing invalidates the signature"],
+      "id": "command-output-ceiling",
+      "kind": "ceiling",
+      "definedIn": "src/runner.mjs",
       "dispositionEffect": false
     },
     {
       "id": "conformance-status-admission",
       "kind": "admission",
       "definedIn": "src/admission.mjs",
-      "invocationSymbol": "computeAdmission(",
-      "provingTests": [
-        "a contradictory or unsigned status cannot elevate the subject",
-        "direct evaluate is refused when the subject is not admitted"
-      ],
+      "dispositionEffect": true
+    },
+    {
+      "id": "containment-halt-routing",
+      "kind": "routing",
+      "definedIn": "src/evaluate.mjs",
       "dispositionEffect": true
     },
     {
       "id": "contract-authorization",
       "kind": "admission",
       "definedIn": "src/authorization.mjs",
-      "invocationSymbol": "verifyContractAuthorization(",
-      "provingTests": ["a present but invalid contract authorization signature is rejected"],
+      "dispositionEffect": true
+    },
+    {
+      "id": "disposition-reduction",
+      "kind": "verification",
+      "definedIn": "src/reducer.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "evaluation-deadline",
+      "kind": "ceiling",
+      "definedIn": "src/deadline.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "evaluation-supervisor",
+      "kind": "ceiling",
+      "definedIn": "src/supervisor.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "evidence-artifact-ceiling",
+      "kind": "ceiling",
+      "definedIn": "src/evidence.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "phase-scheduled-execution",
+      "kind": "scheduling",
+      "definedIn": "src/validators/validation-plan.mjs",
       "dispositionEffect": true
     },
     {
       "id": "policy-plan-mechanism-census",
       "kind": "census",
       "definedIn": "src/census.mjs",
-      "invocationSymbol": "runOrphanCensus(",
-      "provingTests": ["kernel self-census over a real run: all five stages equal with ZERO exclusions"],
+      "dispositionEffect": true
+    },
+    {
+      "id": "receipt-signing",
+      "kind": "verification",
+      "definedIn": "src/receipt.mjs",
+      "dispositionEffect": false
+    },
+    {
+      "id": "receipt-verification",
+      "kind": "verification",
+      "definedIn": "src/receipt.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "sandbox-network-isolation",
+      "kind": "isolation",
+      "definedIn": "src/sandbox.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "sandbox-process-ceiling",
+      "kind": "isolation",
+      "definedIn": "src/sandbox.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "sandbox-read-isolation",
+      "kind": "isolation",
+      "definedIn": "src/sandbox.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "sandbox-write-isolation",
+      "kind": "isolation",
+      "definedIn": "src/sandbox.mjs",
+      "dispositionEffect": true
+    },
+    {
+      "id": "toolchain-authority",
+      "kind": "verification",
+      "definedIn": "src/toolchain.mjs",
       "dispositionEffect": true
     }
   ]

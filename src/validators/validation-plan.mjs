@@ -5,6 +5,12 @@ import { runTargetCommand } from "../runner.mjs";
 // check instance, bounded by the evaluation deadline.
 export const CONTROL_POINTS = Object.freeze(["phase-scheduled-execution"]);
 
+// The exact per-phase command selection the validator uses; exposed for the
+// control-surface runtime proof.
+export function commandsForPhase(validationCommands, phase) {
+  return validationCommands.filter((c) => c.phase === phase);
+}
+
 // validation-plan-execute@1 — one check instance per phase
 // (validation-plan-admission / -validation / -finalization). Each instance
 // executes exactly the contract validation commands DECLARED FOR ITS OWN
@@ -20,7 +26,7 @@ export function validationPlanExecute(context) {
     return { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], details: { failure: "no candidate workspace" } };
   }
 
-  const phaseCommands = workContract.validationCommands.filter((c) => c.phase === check.phase);
+  const phaseCommands = commandsForPhase(workContract.validationCommands, check.phase);
   const reasonCodes = new Set();
   const evidenceRefs = [];
   const reports = [];
@@ -54,6 +60,12 @@ export function validationPlanExecute(context) {
       infrastructureFailed = true;
       if (error?.reasonCode === "SANDBOX_UNAVAILABLE") reasonCodes.add("SANDBOX_UNAVAILABLE");
       reports.push({ commandId: command.commandId, executed: false, error: String(error) });
+      continue;
+    }
+    if (execution.toolchainRejected) {
+      infrastructureFailed = true;
+      reasonCodes.add("TOOLCHAIN_UNRESOLVED");
+      reports.push({ commandId: command.commandId, executed: false, toolchainRejected: true });
       continue;
     }
     reports.push({ commandId: command.commandId, executed: true, report: execution.report });

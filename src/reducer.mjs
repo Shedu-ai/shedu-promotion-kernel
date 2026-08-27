@@ -3,6 +3,15 @@ import { validateValue } from "./contracts.mjs";
 // Control point: the deterministic, override-free disposition reduction.
 export const CONTROL_POINTS = Object.freeze(["disposition-reduction"]);
 
+// Module-private brand: a disposition object is authoritative only if THIS
+// reducer produced it. A disposition literal constructed elsewhere is not
+// branded and is not honored by the receipt builder.
+const DISPOSITION_BRAND = Symbol("shedu-disposition");
+
+export function isReducerDisposition(d) {
+  return d?.[DISPOSITION_BRAND] === true;
+}
+
 // Disposition reducer. Deterministic, with no override path: the disposition
 // is a pure function of (plan, planDigest, results) and nothing else.
 //
@@ -86,7 +95,7 @@ export function reduceDisposition({ plan, planDigest, results }) {
     }
   }
 
-  return {
+  const outcome = {
     disposition: blockingReasons.size === 0 ? "PROMOTABLE" : "BLOCKED",
     reasonCodes: [...blockingReasons].sort(),
     consumed,
@@ -94,4 +103,6 @@ export function reduceDisposition({ plan, planDigest, results }) {
     evidenceOnly,
     problems
   };
+  Object.defineProperty(outcome, DISPOSITION_BRAND, { value: true, enumerable: false });
+  return outcome;
 }

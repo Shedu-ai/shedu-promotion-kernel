@@ -50,6 +50,13 @@
         {"$ref": "#/$defs/argv"}
       ]
     },
+    "admittedPromotionArgv": {
+      "description": "The exact promotion argv Harness Bench uses AFTER supplying external admission evidence (attestation, pinned key, expected commit). It does not weaken the default FOUNDATION_ONLY state: promotionArgv stays null until admission passes.",
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/argv"}
+      ]
+    },
     "capabilities": {
       "type": "array",
       "minItems": 1,

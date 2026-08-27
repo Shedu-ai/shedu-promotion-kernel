@@ -8,7 +8,7 @@ import { resolveBuiltinValidator } from "./builtin-validators.mjs";
 import { planCheckValidatorId } from "./census.mjs";
 import { validatorDigestForPlanCheck } from "./validator-digest.mjs";
 import { createEvidenceIndex } from "./evidence.mjs";
-import { reduceDisposition } from "./reducer.mjs";
+import { reduceDisposition, isReducerDisposition } from "./reducer.mjs";
 import { runTargetCommand } from "./runner.mjs";
 import { createDeadline } from "./deadline.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
@@ -53,6 +53,16 @@ const INTEGRITY_HALT_CHECK_IDS = new Set([
   "evidence-binding-index"
 ]);
 
+// Exposed for the control-surface runtime proofs: the actual routing table
+// and the actual artifact-root resolution the evaluator uses.
+export function isIntegrityHaltCheck(checkId) {
+  return INTEGRITY_HALT_CHECK_IDS.has(checkId);
+}
+
+export function resolveEvidenceDir(outDir, artifactRoot) {
+  return join(outDir, artifactRoot.replace(/\/+$/, ""), "evidence");
+}
+
 export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks = null }) {
   const failure = (reasonCode, errors) => ({ ok: false, reasonCode, errors });
 
@@ -60,10 +70,6 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   if (!contract.ok) return failure(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
   const { baseCommit } = workContract.target;
-
-  // A present authorization signature is enforced, not inert.
-  const authorization = verifyContractAuthorization(workContract);
-  if (!authorization.ok) return failure(authorization.reasonCode, [authorization]);
 
   const commit = verifyImmutableCommit(repoDir, baseCommit);
   if (!commit.ok) return failure(commit.reasonCode, [commit]);
@@ -76,6 +82,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     kind: "policy-profile@1"
   });
   if (!profile.ok) return failure(profile.reasonCode, profile.errors ?? [profile]);
+
+  // Authorization is verified against the trust root in the base-authoritative
+  // profile, not the key embedded in the contract itself.
+  const authorization = verifyContractAuthorization(workContract, profile.value.authorization);
+  if (!authorization.ok) return failure(authorization.reasonCode, [authorization]);
 
   let capabilityIndexDigest = null;
   let capabilityIndex = null;
@@ -146,7 +157,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   // and the receipt records it. It is a contract-declared, path-contained
   // relative directory; the caller's outDir is the operational mount point.
   const artifactRootRel = workContract.artifactRoot.replace(/\/+$/, "");
-  const evidenceRootDir = join(outDir, artifactRootRel, "evidence");
+  const evidenceRootDir = resolveEvidenceDir(outDir, workContract.artifactRoot);
   const evidence = createEvidenceIndex({
     rootDir: evidenceRootDir,
     maxTotalBytes: workContract.resourceCeilings.maxArtifactBytes,
@@ -248,13 +259,6 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
             });
             const refs = [
               evidence.put({
-                artifactId: `target-report-${check.checkId}`,
-                checkId: check.checkId,
-                validatorId: planCheckValidatorId(check),
-                bytes: Buffer.from(canonicalize(execution.report), "utf8"),
-                mediaType: "application/json"
-              }),
-              evidence.put({
                 artifactId: `target-stdout-${check.checkId}`,
                 checkId: check.checkId,
                 validatorId: planCheckValidatorId(check),
@@ -262,7 +266,22 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
                 mediaType: "application/octet-stream"
               })
             ];
-            if (execution.spawnFailed) {
+            // A resolvable command has a machine report; a toolchain-rejected
+            // one does not.
+            if (execution.report !== null) {
+              refs.unshift(
+                evidence.put({
+                  artifactId: `target-report-${check.checkId}`,
+                  checkId: check.checkId,
+                  validatorId: planCheckValidatorId(check),
+                  bytes: Buffer.from(canonicalize(execution.report), "utf8"),
+                  mediaType: "application/json"
+                })
+              );
+            }
+            if (execution.toolchainRejected) {
+              partial = { outcome: "INFRA_FAILURE", reasonCodes: ["TOOLCHAIN_UNRESOLVED"], evidence: refs };
+            } else if (execution.spawnFailed) {
               partial = { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], evidence: refs };
             } else if (execution.report.timedOut) {
               partial = { outcome: "FIRED", reasonCodes: ["COMMAND_TIMEOUT"], evidence: refs };
@@ -320,6 +339,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   }
 
   const reduced = reduceDisposition({ plan, planDigest, results });
+  // The disposition must come from the sanctioned reducer, not a forged
+  // object: an unbranded disposition is never trusted.
+  if (!isReducerDisposition(reduced)) {
+    return failure("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "disposition was not produced by the disposition reducer" }]);
+  }
   const completedAt = nowIso();
 
   // Anchor every check result in the content-addressed store before the
