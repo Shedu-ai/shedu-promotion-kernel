@@ -10,12 +10,22 @@ export const CONTROL_POINTS = Object.freeze(["git-authority"]);
 // A closed, typed Git authority. Every Git operation the kernel performs —
 // frozen-source verification, immutable authority reads, candidate inspection,
 // worktree materialization, CLI commit discovery — flows through this single
-// module. Git is NEVER resolved through ambient PATH: it is resolved from a
-// closed set of absolute system locations (or an explicit absolute override),
-// its canonical path and content digest are bound, and the digest is
-// reverified before every invocation. The child runs in a minimal,
-// constructed environment (no ambient config, no ambient PATH) so a fake
-// `git` planted on PATH is never consulted.
+// module. Git is resolved ONLY from a fixed, closed set of absolute system
+// locations: never through ambient PATH, and never through a caller-supplied
+// override (no environment variable can substitute the executable). Its
+// canonical path and content digest are bound, and the digest is reverified
+// before every invocation. The child runs in a minimal, constructed
+// environment (no ambient config, no ambient PATH) so a fake `git` planted on
+// PATH is never consulted.
+//
+// KNOWN LIMITATION (documented, not silently ignored): on macOS the resolved
+// /usr/bin/git is a thin dispatcher that execs the active toolchain's git
+// under /Library/Developer/CommandLineTools; binding the dispatcher digest
+// does NOT transitively close the underlying git binary + helper programs +
+// dylibs. Full toolchain closure is not achievable in-process; it is deferred
+// to Harness Bench, which materializes the frozen commit under its own trusted
+// toolchain. This module closes the SUBSTITUTION surface (no PATH, no override)
+// and binds the dispatcher identity; it does not claim transitive closure.
 
 export class GitAuthorityError extends Error {
   constructor(message) {
@@ -35,11 +45,9 @@ let resolved = null;
 
 function resolveGit() {
   if (resolved !== null) return resolved;
-  // An explicit override must be an absolute path to a regular file — never a
-  // bare name resolved through PATH.
-  const override = process.env.SHEDU_GIT ?? null;
-  const ordered = override ? [override, ...CANDIDATES] : CANDIDATES;
-  for (const candidate of ordered) {
+  // No caller-supplied override: the candidate set is fixed in source. An
+  // environment variable can never substitute the git executable.
+  for (const candidate of CANDIDATES) {
     if (!isAbsolute(candidate)) continue;
     try {
       if (existsSync(candidate) && statSync(candidate).isFile()) {
@@ -92,7 +100,9 @@ export function gitAuthorityIdentity() {
   return { path: auth.path, digest: auth.digest };
 }
 
-// Test seam: reset the cached resolution (e.g. after setting SHEDU_GIT).
+// Test seam: reset the cached resolution (the candidate set is re-scanned on
+// the next call). Used by tests that manipulate PATH/env to prove no
+// substitution surface exists.
 export function resetGitAuthority() {
   resolved = null;
 }

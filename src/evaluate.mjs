@@ -9,6 +9,7 @@ import { planCheckValidatorId } from "./census.mjs";
 import { validatorDigestForPlanCheck } from "./validator-digest.mjs";
 import { createEvidenceIndex } from "./evidence.mjs";
 import { reduceDisposition, isReducerDisposition } from "./reducer.mjs";
+import { createControlLedger } from "./control-runtime.mjs";
 import { runTargetCommand } from "./runner.mjs";
 import { createDeadline } from "./deadline.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
@@ -89,11 +90,14 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   if (!authorization.ok) return failure(authorization.reasonCode, [authorization]);
 
   // Production control trace: the real control engagements during this
-  // evaluation, bound into the receipt below. These are recorded as controls
-  // actually execute — not manufactured from standalone proof functions.
+  // evaluation, bound into the receipt below through the registration-gated
+  // control ledger (see finalization). These are recorded as controls actually
+  // execute — not manufactured from standalone proof functions. The third
+  // argument is retained for call-site compatibility but the registry's
+  // declared disposition-effect is authoritative at binding time.
   const engaged = new Map();
-  const engage = (controlId, outcome, dispositionEffect = true) => {
-    if (!engaged.has(controlId)) engaged.set(controlId, { controlId, invocation: "evaluation", outcome, dispositionEffect });
+  const engage = (controlId, outcome) => {
+    if (!engaged.has(controlId)) engaged.set(controlId, { controlId, invocation: "evaluation", outcome });
   };
   engage("contract-authorization", authorization.authenticated ? "AUTHENTICATED" : "UNSIGNED_PERSONAL");
 
@@ -410,6 +414,50 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   engage("evidence-artifact-ceiling", "PASS");
   const finalizedEvidence = evidence.finalize();
 
+  // Bind the production control trace through the REGISTRATION-GATED ledger.
+  // An engagement for a control absent from the control-surface registry
+  // throws (failing the evaluation) — the trace cannot name a control the
+  // registry does not admit. Every event is bound to this run's identity (the
+  // compiled-plan digest + candidate), carries the evidence-index digest, and
+  // names its consumer. The disposition-reduction event's outcome IS the final
+  // disposition, giving the census a mechanically verifiable relationship
+  // between the trace and the receipt's disposition.
+  let controlTrace;
+  try {
+    const controlSurface = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url), "utf8"));
+    const registeredControlIds = controlSurface.controls.map((c) => c.id);
+    const dispositionEffectById = new Map(controlSurface.controls.map((c) => [c.id, c.dispositionEffect === true]));
+    const controlLedger = createControlLedger(registeredControlIds);
+    for (const e of engaged.values()) {
+      controlLedger.record({
+        controlId: e.controlId,
+        invocation: e.invocation,
+        inputDigest: planDigest,
+        outcome: e.outcome,
+        evidence: finalizedEvidence.indexDigest,
+        consumer: "promotion-receipt",
+        dispositionEffect: dispositionEffectById.get(e.controlId) === true,
+        proven: true
+      });
+    }
+    controlTrace = controlLedger
+      .events()
+      .map((ev) => ({
+        controlId: ev.controlId,
+        invocation: ev.invocation,
+        outcome: ev.outcome,
+        dispositionEffect: ev.dispositionEffect,
+        consumer: ev.consumer,
+        planDigest: ev.inputDigest,
+        candidateId: plan.candidate.id,
+        evidenceIndexDigest: ev.evidence
+      }))
+      .sort((a, b) => (a.controlId < b.controlId ? -1 : 1));
+  } catch (error) {
+    const reasonCode = error?.reasonCode ?? "INFRASTRUCTURE_FAILURE";
+    return failure(reasonCode, [{ reasonCode, message: `control-trace ledger rejected an engagement: ${String(error)}` }]);
+  }
+
   const validatorDigests = new Map();
   for (const check of plan.checks) {
     const validatorId = planCheckValidatorId(check);
@@ -437,7 +485,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     },
     checkResults: results,
     changedFiles,
-    controlTrace: [...engaged.values()].sort((a, b) => (a.controlId < b.controlId ? -1 : 1)),
+    controlTrace,
     startedAt,
     completedAt,
     disposition: reduced.disposition,

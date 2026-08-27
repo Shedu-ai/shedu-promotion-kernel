@@ -8,6 +8,7 @@ import { KERNEL_RELEASE } from "./compiler.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { verifyActivationPair } from "./activation.mjs";
+import { runControlCensus } from "./control-census.mjs";
 
 // Zero-provider conformance matrix (AC-13/AC-14) and the kernel's own
 // activation proof (brief §7 items 5–6). Every synthetic target is built
@@ -483,6 +484,31 @@ export function runConformance({ outDir }) {
     return { mechanismId: mechanism.mechanismId, caseId, proven: pair.ok };
   });
 
+  // Control-surface census over the REAL receipts this matrix produced. This
+  // is the production invocation of the census (not a test-only call): the
+  // union of the conforming and planted control traces must observe every
+  // productionObservable control, each trace bound to its receipt's run
+  // identity and disposition. An incomplete census fails the matrix.
+  const controlRegistry = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url), "utf8"));
+  const productionReceipts = [];
+  for (const c of cases) {
+    for (const kind of ["conforming", "planted"]) {
+      productionReceipts.push(JSON.parse(readFileSync(join(outDir, c.caseId, kind, "receipt.json"), "utf8")));
+    }
+  }
+  const census = runControlCensus({
+    srcDir: new URL("../src", import.meta.url).pathname,
+    registry: controlRegistry,
+    productionReceipts
+  });
+  const controlCensus = {
+    complete: census.complete,
+    registered: census.registered.length,
+    proven: census.proven.length,
+    productionObserved: census.productionObserved.length,
+    findings: census.findings.map((f) => ({ id: f.id, reasonCode: f.reasonCode }))
+  };
+
   const allPassed =
     cases.every(
       (c) =>
@@ -490,14 +516,15 @@ export function runConformance({ outDir }) {
         c.conforming.receiptVerified &&
         c.planted.disposition === "BLOCKED" &&
         c.planted.receiptVerified
-    ) && kernelActivation.every((a) => a.proven);
+    ) && kernelActivation.every((a) => a.proven) && controlCensus.complete;
 
   const status = {
     schemaVersion: "conformance-status@1",
     kernelRelease: KERNEL_RELEASE,
     allPassed,
     cases,
-    kernelActivation
+    kernelActivation,
+    controlCensus
   };
   const validated = validateValue("conformance-status@1", status);
   if (!validated.ok) throw new Error(`invalid conformance status: ${JSON.stringify(validated.errors)}`);

@@ -21,16 +21,22 @@ function loadRegistry() {
   return doc.value;
 }
 
-test("a genuine run produces a closed control ledger with zero exclusions", () => {
+test("the runtime ledger closes (registration == implementation == proven) but the census FAILS CLOSED without a production trace", () => {
   const report = runControlCensus({ srcDir: SRC, registry: loadRegistry() });
-  assert.equal(report.complete, true, JSON.stringify(report.findings, null, 2));
+  // Registration/implementation/runtime-proof closure holds independently.
   assert.equal(report.registered.length, report.discovered.length);
   assert.equal(report.proven.length, report.registered.length);
-  // Infrastructure controls the policy-plan census cannot see are present.
   for (const id of ["sandbox-network-isolation", "evaluation-deadline", "evaluation-supervisor", "conformance-status-admission", "architecture-fence", "toolchain-authority"]) {
     assert.ok(report.registered.includes(id), id);
     assert.ok(report.proven.includes(id), `${id} must be proven by execution`);
   }
+  // But with NO production evidence, the census is INCOMPLETE — it does not
+  // vacuously pass. Every productionObservable control is reported unobserved.
+  assert.equal(report.complete, false);
+  assert.equal(report.productionTraceProvided, false);
+  assert.ok(report.findings.length > 0);
+  assert.ok(report.findings.every((f) => f.reasonCode === "CONTROL_UNOBSERVED"));
+  assert.ok(report.findings.some((f) => f.id === "disposition-reduction"));
 });
 
 test("a runtime control invoked without registration is refused by the ledger", () => {
@@ -118,20 +124,29 @@ test("the census consumes a genuine production trace and fails if a productionOb
     contractBytes: contractBytesOf(target.contractFor(candidate)),
     outDir: mkdtempSync(join(tmpdir(), "shedu-census-trace-"))
   });
-  const trace = outcome.receipt.controlTrace.map((e) => e.controlId);
-
-  // With the genuine trace, every productionObservable control is observed.
-  const ok = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionTrace: trace });
+  // With the genuine RECEIPT, every productionObservable control is observed,
+  // and the census verifies the trace is bound to the receipt's run identity
+  // and that disposition-reduction agrees with the final disposition.
+  const ok = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [outcome.receipt] });
   assert.equal(ok.complete, true, JSON.stringify(ok.findings, null, 2));
   assert.ok(ok.productionObserved.includes("disposition-reduction"));
   assert.ok(ok.productionObserved.includes("sandbox-network-isolation"));
 
+  // Tampering: rewrite the disposition without touching the trace. The
+  // census's disposition-relationship check catches the mismatch.
+  const tampered = JSON.parse(JSON.stringify(outcome.receipt));
+  tampered.disposition = tampered.disposition === "PROMOTABLE" ? "BLOCKED" : "PROMOTABLE";
+  const mism = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [tampered] });
+  assert.equal(mism.complete, false);
+  assert.ok(mism.findings.some((f) => f.id === "disposition-reduction" && f.reasonCode === "CONTROL_UNOBSERVED"));
+
   // Dropping a productionObservable control from the trace fails closure —
   // a standalone proof cannot substitute for real production observation.
-  const missing = trace.filter((id) => id !== "disposition-reduction");
-  const bad = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionTrace: missing });
+  const dropped = JSON.parse(JSON.stringify(outcome.receipt));
+  dropped.controlTrace = dropped.controlTrace.filter((e) => e.controlId !== "sandbox-network-isolation");
+  const bad = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [dropped] });
   assert.equal(bad.complete, false);
-  assert.ok(bad.findings.some((f) => f.id === "disposition-reduction" && f.reasonCode === "CONTROL_UNOBSERVED"));
+  assert.ok(bad.findings.some((f) => f.id === "sandbox-network-isolation" && f.reasonCode === "CONTROL_UNOBSERVED"));
 });
 
 test("discovery reads the filesystem independently of the registry", () => {

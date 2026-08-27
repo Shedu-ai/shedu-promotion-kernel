@@ -107,12 +107,16 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["controlId", "invocation", "outcome", "dispositionEffect"],
+        "required": ["controlId", "invocation", "outcome", "dispositionEffect", "consumer", "planDigest", "candidateId", "evidenceIndexDigest"],
         "properties": {
           "controlId": {"$ref": "#/$defs/kebabId"},
           "invocation": {"type": "string", "minLength": 1, "maxLength": 128},
           "outcome": {"type": "string", "minLength": 1, "maxLength": 64},
-          "dispositionEffect": {"type": "boolean"}
+          "dispositionEffect": {"type": "boolean"},
+          "consumer": {"type": "string", "minLength": 1, "maxLength": 128},
+          "planDigest": {"$ref": "#/$defs/digest"},
+          "candidateId": {"$ref": "#/$defs/commitId"},
+          "evidenceIndexDigest": {"$ref": "#/$defs/digest"}
         }
       }
     },

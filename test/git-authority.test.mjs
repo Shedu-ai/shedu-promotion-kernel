@@ -88,3 +88,42 @@ test("verifyFrozenSource against a nonexistent repository fails closed", () => {
   assert.equal(source.ok, false);
   assert.equal(source.clean, false);
 });
+
+// Finding 1 remediation. An environment variable can no longer substitute the
+// git executable: SHEDU_GIT is ignored, and the fake-clean git it points at is
+// never consulted, so a nonexistent repo is NOT reported clean.
+test("an env-supplied SHEDU_GIT executable is ignored (no substitution surface)", () => {
+  const repo = makeGitRepo();
+  writeRepoFile(repo, "src/app.mjs", "1\n");
+  const commit = commitAll(repo, "base");
+
+  // A fake git that would call any repo clean at an invented commit.
+  const dir = mkdtempSync(join(tmpdir(), "shedu-shedugit-"));
+  const fake = join(dir, "git");
+  writeFileSync(fake, "#!/bin/sh\ncase \"$*\" in\n  *rev-parse*HEAD*) echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeef ;;\n  *status*) echo '' ;;\n  *) echo INVENTED ;;\nesac\nexit 0\n");
+  chmodSync(fake, 0o755);
+
+  const savedGit = process.env.SHEDU_GIT;
+  process.env.SHEDU_GIT = fake;
+  try {
+    resetGitAuthority();
+    // The bound authority is a system git, NEVER the env-supplied fake.
+    const id = gitAuthorityIdentity();
+    assert.ok(!id.path.includes("shedu-shedugit"), id.path);
+
+    // The real, dirty/nonexistent states are reported truthfully — the fake's
+    // "always clean at deadbeef" is never observed.
+    const real = verifyFrozenSource(repo, commit);
+    assert.equal(real.commit, commit);
+    assert.notEqual(real.commit, "deadbeef".repeat(5));
+
+    const missing = join(tmpdir(), `shedu-nonexistent-shedugit-${process.pid}`);
+    const source = verifyFrozenSource(missing, null);
+    assert.equal(source.ok, false, "a fake SHEDU_GIT must not make a nonexistent repo appear clean");
+    assert.equal(source.clean, false);
+  } finally {
+    if (savedGit === undefined) delete process.env.SHEDU_GIT;
+    else process.env.SHEDU_GIT = savedGit;
+    resetGitAuthority();
+  }
+});

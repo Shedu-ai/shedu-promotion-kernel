@@ -89,28 +89,40 @@ test("a containment halt is recorded as FIRED in the production trace", () => {
   assert.equal(halt.outcome, "FIRED");
 });
 
-// The exact reproduced bypass: replacing the CLI admission check with
-// `if (false)` must NOT grant promotion, because the production worker
-// re-enforces admission independently.
-test("replacing the CLI admission check with if(false) does not bypass admission", () => {
+// Finding 3 remediation. The admission gate is now UNCONDITIONAL in the
+// promotion worker — there is NO caller flag (SHEDU_REQUIRE_ADMISSION /
+// requireAdmission) to disable it, and no CLI-side early check whose
+// neutralization matters. The reviewer's reproduction (flip requireAdmission
+// true->false, replace `if (!isAdmitted(admission))` with `if (false)`) is
+// structurally impossible: the flag no longer exists, and stripping the CLI's
+// admission plumbing cannot make the worker promote an unadmitted tree.
+test("the admission caller-flag is gone and no CLI edit makes the worker promote an unadmitted tree", () => {
   const kernelRoot = new URL("..", import.meta.url).pathname;
-  // Real-path the staging dir so the copied CLI's import.meta.url main-guard
-  // matches process.argv[1] (macOS /var -> /private/var symlink otherwise
-  // silently prevents main() from running).
+
+  // Static: the disabling flag the reviewer flipped no longer exists anywhere.
+  const supervisorSrc = readFileSync(join(kernelRoot, "src", "supervisor.mjs"), "utf8");
+  const workerSrc = readFileSync(join(kernelRoot, "src", "worker-evaluate.mjs"), "utf8");
+  assert.ok(!supervisorSrc.includes("requireAdmission"), "supervisor must not expose a requireAdmission flag");
+  assert.ok(!/SHEDU_REQUIRE_ADMISSION/.test(supervisorSrc + workerSrc), "no caller-controlled admission env gate may exist");
+  // The worker gate is unconditional: committedAdmission()/isAdmitted() with
+  // no surrounding enabling condition.
+  assert.ok(/committedAdmission\(\)/.test(workerSrc) && /if \(!isAdmitted\(admission\)\)/.test(workerSrc), "worker must gate unconditionally");
+
+  // Dynamic: copy the tree, STRIP the CLI's admission plumbing entirely, and
+  // confirm the worker still refuses (the copied tree is not a clean frozen
+  // git checkout, so committedAdmission() -> FOUNDATION_ONLY -> NOT_ADMITTED).
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "shedu-bypass-")));
   for (const dir of ["src", "conformance", "registry", "packs", "schemas"]) {
     cpSync(join(kernelRoot, dir), join(tmp, dir), { recursive: true });
   }
   cpSync(join(kernelRoot, "package.json"), join(tmp, "package.json"));
-
-  // Patch the CLI: neutralize the early admission gate.
   const cliPath = join(tmp, "src", "cli.mjs");
   let cli = readFileSync(cliPath, "utf8");
-  cli = cli.replace("if (!isAdmitted(admission)) {", "if (false) {");
-  assert.ok(cli.includes("if (false) {"), "the bypass patch must apply");
+  // Remove the propagation of admission material to the worker (simulate an
+  // attacker gutting the CLI's admission handling).
+  cli = cli.replace(/if \(att\) workerEnv\.SHEDU_ATTESTATION_FILE = att;/, "");
   writeFileSync(cliPath, cli);
 
-  // Build a target repo + contract to evaluate.
   const target = buildTargetRepo();
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const f = 2;\n");
   const candidate = commitAll(target.repoDir, "feature");
@@ -122,8 +134,6 @@ test("replacing the CLI admission check with if(false) does not bypass admission
     [cliPath, "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir()],
     { encoding: "utf8", env: { PATH: process.env.PATH } }
   );
-  // The worker's independent admission gate refuses: no promotion despite the
-  // neutralized CLI check.
   assert.equal(run.status, 2, run.stdout);
   assert.equal(JSON.parse(run.stderr).reasonCode, "NOT_ADMITTED");
 });

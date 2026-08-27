@@ -46,12 +46,17 @@ export function discoverControlPoints(srcDir) {
 }
 
 // proofs is injectable so tests can exercise a removed-denial proof failure.
-// productionTrace is the union of control ids OBSERVED in genuine production
-// control traces (receipt.controlTrace from real evaluations); a control
-// marked productionObservable in the registry MUST appear there — a registered
-// control not observed in real execution fails closure, and static discovery
-// or a standalone proof cannot substitute for it.
-export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, productionTrace = null }) {
+// productionReceipts are genuine promotion receipts from real evaluations; the
+// census derives the OBSERVED control ids from their controlTrace AND verifies
+// each trace is bound to its receipt's run identity (compiled-plan digest) and
+// that the disposition-reduction trace entry equals the receipt's final
+// disposition. A control marked productionObservable in the registry MUST be
+// observed — a registered control not observed in real execution fails
+// closure, and static discovery or a standalone proof cannot substitute for
+// it. productionTrace (a bare union of ids) is retained only as a lower-
+// fidelity fallback. The census FAILS CLOSED: with no production evidence at
+// all, every productionObservable control is reported unobserved.
+export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, productionReceipts = null, productionTrace = null }) {
   const discovered = discoverControlPoints(srcDir);
   const registeredIds = registry.controls.map((c) => c.id);
   const registeredSet = new Set(registeredIds);
@@ -102,19 +107,41 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, pr
     }
   }
 
-  // Production-trace closure: a control marked productionObservable MUST be
-  // observed in a genuine evaluation's control trace. A standalone proof does
-  // not substitute — this binds the census to real production execution.
-  const observed = productionTrace === null ? null : new Set(productionTrace);
-  const productionObserved = [];
-  if (observed !== null) {
-    for (const control of registry.controls) {
-      if (control.productionObservable !== true) continue;
-      if (observed.has(control.id)) {
-        productionObserved.push(control.id);
-      } else {
-        findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but was not observed in a genuine production control trace` });
+  // Production-trace closure — FAIL CLOSED. A control marked
+  // productionObservable MUST be observed in a genuine evaluation's control
+  // trace; a standalone proof does not substitute. The observed set is derived
+  // from real receipts, whose traces are ALSO verified to be bound to their
+  // run identity and to agree with the receipt's final disposition.
+  let observed = null;
+  if (productionReceipts !== null) {
+    observed = new Set();
+    for (const receipt of productionReceipts) {
+      const trace = Array.isArray(receipt?.controlTrace) ? receipt.controlTrace : [];
+      const planDigest = receipt?.digests?.compiledPlan ?? null;
+      const dispEntry = trace.find((t) => t.controlId === "disposition-reduction");
+      if (!dispEntry || dispEntry.outcome !== receipt?.disposition) {
+        findings.push({ id: "disposition-reduction", reasonCode: "CONTROL_UNOBSERVED", message: "a production receipt's disposition-reduction trace does not match its final disposition" });
       }
+      for (const t of trace) {
+        if (planDigest !== null && t.planDigest !== planDigest) {
+          findings.push({ id: t.controlId, reasonCode: "CONTROL_UNOBSERVED", message: `control ${t.controlId} trace is not bound to the receipt's run identity` });
+        }
+        observed.add(t.controlId);
+      }
+    }
+  } else if (productionTrace !== null) {
+    observed = new Set(productionTrace);
+  }
+
+  const productionObserved = [];
+  for (const control of registry.controls) {
+    if (control.productionObservable !== true) continue;
+    if (observed !== null && observed.has(control.id)) {
+      productionObserved.push(control.id);
+    } else if (observed === null) {
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but NO production control trace was supplied to the census (fail-closed)` });
+    } else {
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but was not observed in a genuine production control trace` });
     }
   }
 

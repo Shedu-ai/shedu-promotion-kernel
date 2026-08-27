@@ -20,6 +20,16 @@
     "src/cli.mjs",
     "evaluate"
   ],
+  "promotionParameterMap": {
+    "contract": { "flag": "--contract", "kind": "path", "required": true },
+    "repository": { "flag": "--repo", "kind": "path", "required": true },
+    "outputDir": { "flag": "--out", "kind": "path", "required": true },
+    "attestation": { "flag": "--attestation", "kind": "path", "required": false, "admissionMaterial": true },
+    "pinnedKey": { "flag": "--pinned-key", "kind": "hex64", "required": false, "admissionMaterial": true },
+    "expectedCommit": { "flag": "--expected-commit", "kind": "sha40", "required": false, "admissionMaterial": true },
+    "signKey": { "flag": "--sign-key", "kind": "path", "required": false }
+  },
+  "publishedReceiptPath": "current/receipt.json",
   "capabilities": [
     "exact-argv@1",
     "immutable-subject-identity@1",

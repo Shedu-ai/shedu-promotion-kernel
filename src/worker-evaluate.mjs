@@ -30,21 +30,21 @@ function stall(ms) {
 stall(process.env.SHEDU_TEST_STALL_MS);
 
 const [repoDir, contractPath, staging] = process.argv.slice(2);
-const contractBytes = readFileSync(contractPath);
 
-// AUTHORITATIVE admission gate for the promotion entrypoint. When the CLI
-// invokes the supervised path it sets SHEDU_REQUIRE_ADMISSION; the gate is
-// then re-enforced HERE, in the production worker, from the same
-// externally-supplied evidence — so editing the CLI's early check cannot
-// bypass admission.
-if (process.env.SHEDU_REQUIRE_ADMISSION === "1") {
-  const admission = committedAdmission();
-  if (!isAdmitted(admission)) {
-    writeFileSync(join(staging, "supervised-result.json"), Buffer.from(JSON.stringify({ ok: false, reasonCode: "NOT_ADMITTED", reasons: admission.reasons }), "utf8"));
-    process.exit(0);
-  }
+// AUTHORITATIVE admission gate. This is the promotion worker; it ALWAYS
+// enforces admission from the externally-supplied evidence, with NO caller
+// flag to disable it. Admission (including the bounded attestation read)
+// runs INSIDE the supervised deadline, so a blocking/FIFO attestation is
+// killed by the supervisor rather than hanging. To bypass admission an
+// attacker must edit this production gate directly — and a frozen-commit
+// attestation will not admit an edited tree.
+const admission = committedAdmission();
+if (!isAdmitted(admission)) {
+  writeFileSync(join(staging, "supervised-result.json"), Buffer.from(JSON.stringify({ ok: false, reasonCode: "NOT_ADMITTED", reasons: admission.reasons }), "utf8"));
+  process.exit(0);
 }
 
+const contractBytes = readFileSync(contractPath);
 const outcome = evaluateCandidate({ repoDir, contractBytes, outDir: staging });
 
 let summary;

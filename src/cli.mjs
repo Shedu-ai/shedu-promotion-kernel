@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, statSync } from "node:fs";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
-import { evaluateSupervised } from "./supervisor.mjs";
+import { evaluateSupervised, publishedReceiptPath } from "./supervisor.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
 import { isAdmitted, committedAdmission } from "./admission.mjs";
@@ -180,47 +179,48 @@ function runEvaluate(argv) {
   const parsedOverrides = admissionOverridesFromFlags(flags);
   if (parsedOverrides.error) return emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: parsedOverrides.error }]);
 
-  // The promotion entrypoint is gated by the SAME admission the probe uses.
-  // Direct `evaluate` cannot bypass it: unless the subject is admitted to
-  // EXPERIMENTAL, promotion is refused.
-  const admission = committedAdmission(parsedOverrides.overrides);
-  if (!isAdmitted(admission)) {
-    return emitError("NOT_ADMITTED", admission.reasons.map((message) => ({ reasonCode: "NOT_ADMITTED", message })));
-  }
-
+  // Bounded contract read: refuse a non-regular or oversized file (e.g. a FIFO
+  // that could block) rather than reading it — the read happens BEFORE the
+  // supervised deadline, so it must not be able to hang.
+  const contractPath = flags.get("--contract");
   let contractBytes;
   try {
-    contractBytes = readFileSync(flags.get("--contract"));
+    const st = statSync(contractPath);
+    if (!st.isFile() || st.size > 4 * 1024 * 1024) {
+      return emitError("AUTHORITY_OBJECT_MISSING", [
+        { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `contract file ${contractPath} is not a bounded regular file` }
+      ]);
+    }
+    contractBytes = readFileSync(contractPath);
   } catch {
     return emitError("AUTHORITY_OBJECT_MISSING", [
-      { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
+      { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${contractPath}` }
     ]);
   }
-  // The public promotion path — evaluation AND signing/finalization — is
-  // supervised by a hard whole-evaluation deadline in a separate worker
-  // process, publishing one atomic bundle only on success.
   const contract = validateDocument("work-contract@1", contractBytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const outDir = flags.get("--out");
-  // Propagate the externally-supplied admission material to the worker so it
-  // can independently re-enforce admission.
+
+  // The promotion entrypoint is admission-gated, but the admission decision —
+  // including the bounded attestation read — is made INSIDE the supervised
+  // worker, under the hard whole-operation deadline (so a blocking attestation
+  // path is killed, not hung), and is the sole authority (no CLI-side early
+  // check to bypass). We only propagate the externally-supplied admission
+  // MATERIAL to the worker here.
   const workerEnv = {};
-  if (parsedOverrides.overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE) {
-    workerEnv.SHEDU_ATTESTATION_FILE = parsedOverrides.overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE;
-  }
-  if (parsedOverrides.overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY) {
-    workerEnv.SHEDU_PINNED_KEY = parsedOverrides.overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY;
-  }
-  if (parsedOverrides.overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT) {
-    workerEnv.SHEDU_EXPECTED_COMMIT = parsedOverrides.overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT;
-  }
+  const att = parsedOverrides.overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE;
+  const key = parsedOverrides.overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY;
+  const exp = parsedOverrides.overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT;
+  if (att) workerEnv.SHEDU_ATTESTATION_FILE = att;
+  if (key) workerEnv.SHEDU_PINNED_KEY = key;
+  if (exp) workerEnv.SHEDU_EXPECTED_COMMIT = exp;
+
   const supervised = evaluateSupervised({
     repoDir: flags.get("--repo"),
     contractBytes,
     outDir,
     maxRuntimeSeconds: contract.value.maxRuntimeSeconds,
     signKeyPath: flags.has("--sign-key") ? flags.get("--sign-key") : null,
-    requireAdmission: true,
     workerEnv
   });
   if (supervised.timedOut) {
@@ -228,11 +228,14 @@ function runEvaluate(argv) {
       { reasonCode: "DEADLINE_EXCEEDED", message: `evaluation exceeded the ${contract.value.maxRuntimeSeconds}s whole-evaluation ceiling and was killed` }
     ]);
   }
+  if (supervised.reasonCode === "NOT_ADMITTED") {
+    return emitError("NOT_ADMITTED", (supervised.reasons ?? []).map((message) => ({ reasonCode: "NOT_ADMITTED", message })));
+  }
   if (!supervised.ok) return emitError(supervised.reasonCode, [{ reasonCode: supervised.reasonCode, message: supervised.message ?? "" }]);
 
   let receiptBytes;
   try {
-    receiptBytes = readFileSync(join(outDir, "receipt.json"));
+    receiptBytes = readFileSync(publishedReceiptPath(outDir));
   } catch {
     return emitError("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "supervised evaluation produced no receipt" }]);
   }

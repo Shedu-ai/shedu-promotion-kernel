@@ -5,11 +5,35 @@
   "description": "Deterministic summary of the zero-provider conformance matrix. Every field is reproducible by re-running the matrix, so the FOUNDATION_ONLY to EXPERIMENTAL transition is controlled by regenerable evidence, not prose.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kernelRelease", "allPassed", "cases", "kernelActivation"],
+  "required": ["schemaVersion", "kernelRelease", "allPassed", "cases", "kernelActivation", "controlCensus"],
   "properties": {
     "schemaVersion": {"const": "conformance-status@1"},
     "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
     "allPassed": {"type": "boolean"},
+    "controlCensus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["complete", "registered", "proven", "productionObserved", "findings"],
+      "properties": {
+        "complete": {"type": "boolean"},
+        "registered": {"type": "integer", "minimum": 0},
+        "proven": {"type": "integer", "minimum": 0},
+        "productionObserved": {"type": "integer", "minimum": 0},
+        "findings": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "reasonCode"],
+            "properties": {
+              "id": {"$ref": "#/$defs/kebabId"},
+              "reasonCode": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64}
+            }
+          }
+        }
+      }
+    },
     "kernelActivation": {
       "type": "array",
       "minItems": 1,

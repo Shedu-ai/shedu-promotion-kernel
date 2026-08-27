@@ -57,6 +57,26 @@
         {"$ref": "#/$defs/argv"}
       ]
     },
+    "promotionParameterMap": {
+      "description": "Machine-readable mapping from logical run parameters to the CLI flags Harness Bench appends to admittedPromotionArgv. A harness constructs the full invocation deterministically from this map — no flags are hardcoded on the harness side. Parameters marked admissionMaterial carry the external admission evidence; without them the subject stays FOUNDATION_ONLY.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "repository", "outputDir"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/parameter"},
+        "repository": {"$ref": "#/$defs/parameter"},
+        "outputDir": {"$ref": "#/$defs/parameter"},
+        "attestation": {"$ref": "#/$defs/parameter"},
+        "pinnedKey": {"$ref": "#/$defs/parameter"},
+        "expectedCommit": {"$ref": "#/$defs/parameter"},
+        "signKey": {"$ref": "#/$defs/parameter"}
+      }
+    },
+    "publishedReceiptPath": {
+      "description": "Where, relative to the promotion output directory, the atomically-published receipt appears on success. Harness Bench reads the receipt from here.",
+      "type": "string",
+      "minLength": 1
+    },
     "capabilities": {
       "type": "array",
       "minItems": 1,
@@ -80,6 +100,17 @@
       "minItems": 1,
       "items": {
         "type": "string"
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flag", "kind", "required"],
+      "properties": {
+        "flag": {"type": "string", "pattern": "^--[a-z][a-z-]*$"},
+        "kind": {"type": "string", "enum": ["path", "hex64", "sha40"]},
+        "required": {"type": "boolean"},
+        "admissionMaterial": {"type": "boolean"}
       }
     }
   }

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
@@ -52,7 +52,9 @@ export function deriveConformancePassed(status) {
   if (!casesOk) reasons.push("a conformance case did not pass on recomputation");
   const activationOk = status.kernelActivation.length > 0 && status.kernelActivation.every((a) => a.proven === true);
   if (!activationOk) reasons.push("a kernel mechanism activation was not proven on recomputation");
-  const derived = casesOk && activationOk;
+  const censusOk = status.controlCensus?.complete === true && (status.controlCensus?.findings?.length ?? 1) === 0;
+  if (!censusOk) reasons.push("the control-surface census was not complete on recomputation");
+  const derived = casesOk && activationOk && censusOk;
   if (status.allPassed !== derived) {
     reasons.push(`status.allPassed (${status.allPassed}) contradicts the derived result (${derived})`);
     return { passed: false, reasons };
@@ -180,10 +182,16 @@ export function committedAdmission(overrides = {}) {
   const pinnedKey = overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY ?? null;
   const expectedCommit = overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT ?? null;
 
+  // Bounded read: the attestation must be a regular file of bounded size — a
+  // FIFO or a blocking/oversized special file is refused rather than read
+  // (which would otherwise hang).
   let attestationBytes = null;
   if (attestationPath) {
     try {
-      attestationBytes = readFileSync(attestationPath);
+      const st = statSync(attestationPath);
+      if (st.isFile() && st.size <= 64 * 1024) {
+        attestationBytes = readFileSync(attestationPath);
+      }
     } catch {
       attestationBytes = null;
     }
