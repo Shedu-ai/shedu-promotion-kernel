@@ -247,6 +247,7 @@ test("check result and receipt schemas accept valid documents and reject unknown
     repositoryId: "example-repo",
     baseCommit: COMMIT_A,
     candidate: { kind: "COMMIT", id: COMMIT_A },
+    artifactRoot: "artifacts/",
     digests: {
       workContract: ZERO_DIGEST,
       profile: ZERO_DIGEST,

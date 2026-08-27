@@ -135,7 +135,7 @@
       "properties": {
         "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
         "maxArtifactBytes": {"type": "integer", "minimum": 1, "maximum": 10737418240},
-        "maxProcesses": {"type": "integer", "minimum": 1, "maximum": 1024}
+        "maxProcesses": {"const": 1, "description": "The isolation backend enforces a process ceiling only by fork denial. Until an exact multi-process backend exists, the experimental contract admits only 1; a contract the runtime cannot implement is rejected rather than silently under-enforced."}
       }
     },
     "authorization": {

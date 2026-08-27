@@ -1,5 +1,8 @@
 import { validateValue } from "./contracts.mjs";
 
+// Control point: the deterministic, override-free disposition reduction.
+export const CONTROL_POINTS = Object.freeze(["disposition-reduction"]);
+
 // Disposition reducer. Deterministic, with no override path: the disposition
 // is a pure function of (plan, planDigest, results) and nothing else.
 //

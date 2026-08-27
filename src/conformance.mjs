@@ -449,7 +449,7 @@ function runCase(definition, outDir) {
     const verification = verifyReceipt({
       receiptBytes: readFileSync(join(runOut, "receipt.json")),
       planBytes: readFileSync(join(runOut, "plan.json")),
-      evidenceDir: withEvidence ? join(runOut, "evidence") : null
+      evidenceDir: withEvidence ? join(runOut, "artifacts", "evidence") : null
     });
     summaries[kind] = {
       disposition: outcome.receipt.disposition,

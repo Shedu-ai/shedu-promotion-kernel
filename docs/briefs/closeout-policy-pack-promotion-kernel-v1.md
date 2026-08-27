@@ -80,3 +80,47 @@ rules with enforced ones.
   information-theoretically undetectable offline; Ed25519 signing exists for
   exactly that, and per-result evidence anchoring makes every partial
   tampering class detectable without it.
+
+## Correction round 2 (adversarial re-review)
+
+Six findings were closed with engineered fixes and hostile regression tests
+(all generated, none narrated):
+
+- **Host-filesystem disclosure:** `src/sandbox.mjs` is now `(deny default)`;
+  content reads (`file-read-data`) are confined to the candidate/base
+  materializations plus minimal immutable toolchain roots; metadata is
+  allowed only for path resolution. Proof: `test/runner.test.mjs`
+  (sibling-temp, home-credential, and out-of-root reads blocked; the exact
+  `HOST_PRIVATE_VALUE_123` exfil returns `BLOCKED:EPERM`; candidate/base reads
+  succeed).
+- **Activation binding:** `src/activation.mjs` derives a canonical
+  fingerprint over the full check tuple + pack digest + validator byte digest
+  + phase/effect/consumer/release; both receipts, the current registry row,
+  and the current dispatched plan check must prove the SAME fingerprint.
+  Proof: `test/activation.test.mjs` (different-validator/base substitution,
+  validator-byte drift, expected-fingerprint mismatch, structural-failure
+  masquerade).
+- **Evaluation deadline:** `src/deadline.mjs` is a monotonic
+  (`perf_hooks.performance.now()`) absolute bound; every command is capped by
+  the remaining ms and a late finish cannot be PASS. Proof:
+  `test/enforcement.test.mjs` (1s deadline, two 700ms commands).
+- **Self-attested EXPERIMENTAL removed:** `src/admission.mjs` recomputes
+  `allPassed` (never trusts the bit) AND requires a pinned-key attestation
+  binding the kernel commit; direct `evaluate` is gated identically. No key is
+  pinned, so the honest result is FOUNDATION_ONLY. Proof:
+  `test/subject-probe.test.mjs` (contradictory/unsigned/stale/wrong-commit/
+  wrong-key/replay), `test/evaluate.test.mjs` (NOT_ADMITTED gate).
+- **Control-surface census:** `src/control-census.mjs` compares controls
+  discovered from source (`CONTROL_POINTS` exports) against the
+  `control-surface@1` registry — independent sources — covering sandbox,
+  ceilings, deadline, halt routing, activation/receipt verification, and
+  admission. Proof: `test/control-census.test.mjs` (planted unregistered
+  control, unimplemented registry row, absent proving test). Audit:
+  `artifactRoot` now determines the evidence layout and is recorded in the
+  receipt; `authorization.signature` is verified when present.
+- **Process ceiling:** the schema constrains `maxProcesses` to `1`; a
+  realistic multi-process runner cannot run and pilot stays blocked. Proof:
+  `test/sandbox.test.mjs`.
+
+Native run: darwin with `sandbox-exec`; nested-sandbox refusal is exercised
+via an injected probe runner. Resulting subject status: FOUNDATION_ONLY.

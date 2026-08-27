@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument, validateValue } from "./contracts.mjs";
 
+// Control point: the cumulative evidence-artifact byte ceiling.
+export const CONTROL_POINTS = Object.freeze(["evidence-artifact-ceiling"]);
+
 // Content-addressed evidence index. Artifact bytes live under
 // objects/sha256/<hex>; index.json is an evidence-index@1 document binding
 // every artifact to the run's full authority chain and to the check and

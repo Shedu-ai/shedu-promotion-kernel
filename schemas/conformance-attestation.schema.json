@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/conformance-attestation.schema.json",
+  "title": "conformance-attestation@1",
+  "description": "Detached, externally-signed attestation that binds a specific kernel commit/tree, release, conformance-status digest, mechanism inventory, and control surface. The signing key is pinned outside the mutable subject evidence; without a valid attestation from a pinned key the subject cannot elevate above FOUNDATION_ONLY.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kernelRelease",
+    "kernelCommit",
+    "conformanceStatusDigest",
+    "mechanismInventoryDigest",
+    "controlSurfaceDigest",
+    "signing"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "conformance-attestation@1"},
+    "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+    "kernelCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "conformanceStatusDigest": {"$ref": "#/$defs/digest"},
+    "mechanismInventoryDigest": {"$ref": "#/$defs/digest"},
+    "controlSurfaceDigest": {"$ref": "#/$defs/digest"},
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "publicKey", "signature"],
+      "properties": {
+        "algorithm": {"const": "ed25519"},
+        "publicKey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "signature": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

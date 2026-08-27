@@ -1,6 +1,9 @@
 import { canonicalize, digestOfCanonical } from "./canonical-json.mjs";
 import { validateValue } from "./contracts.mjs";
 
+// Control point: the two-way policy-plan mechanism census.
+export const CONTROL_POINTS = Object.freeze(["policy-plan-mechanism-census"]);
+
 // Two-way orphan census. Identity is the full typed tuple
 // {id, validatorId, phase, effect, resultConsumer}, not the bare check id:
 // a registry row for one validator and a plan dispatching a different

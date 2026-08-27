@@ -82,7 +82,7 @@ test("retained conformance receipts remain independently verifiable from disk", 
       const verification = verifyReceipt({
         receiptBytes: readFileSync(join(runDir, "receipt.json")),
         planBytes: readFileSync(join(runDir, "plan.json")),
-        evidenceDir: withEvidence ? join(runDir, "evidence") : null
+        evidenceDir: withEvidence ? join(runDir, "artifacts", "evidence") : null
       });
       assert.equal(verification.ok, true, `${caseId}/${kind}: ${JSON.stringify(verification.errors)}`);
     }

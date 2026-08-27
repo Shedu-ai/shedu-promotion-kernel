@@ -1,51 +1,108 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { generateKeyPairSync, sign as cryptoSign, createPublicKey } from "node:crypto";
 import test from "node:test";
-import { canonicalize } from "../src/canonical-json.mjs";
+import { canonicalize, digestOfBytes } from "../src/canonical-json.mjs";
 import { EXPERIMENTAL_CAPABILITIES, subjectProbe } from "../src/cli.mjs";
+import { computeAdmission, deriveConformancePassed, attestationBody } from "../src/admission.mjs";
 import { KERNEL_RELEASE } from "../src/compiler.mjs";
 
-test("subject probe reports EXPERIMENTAL, gated by committed conformance evidence", () => {
+const statusBytes = readFileSync(new URL("../conformance/status.json", import.meta.url));
+const KERNEL_COMMIT = "a".repeat(40);
+const INV_DIGEST = `sha256:${"1".repeat(64)}`;
+const CTRL_DIGEST = `sha256:${"2".repeat(64)}`;
+
+function pinnedAttestation() {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const jwk = createPublicKey(privateKey).export({ format: "jwk" });
+  const publicKeyHex = Buffer.from(jwk.x, "base64url").toString("hex");
+  const body = attestationBody({
+    kernelCommit: KERNEL_COMMIT,
+    statusDigest: digestOfBytes(statusBytes),
+    mechanismInventoryDigest: INV_DIGEST,
+    controlSurfaceDigest: CTRL_DIGEST
+  });
+  const signature = cryptoSign(null, Buffer.from(canonicalize(body), "utf8"), privateKey).toString("hex");
+  const attestation = { ...body, signing: { algorithm: "ed25519", publicKey: publicKeyHex, signature } };
+  return { attestationBytes: Buffer.from(canonicalize(attestation), "utf8"), publicKeyHex };
+}
+
+const baseOk = (extra = {}) => {
+  const { attestationBytes, publicKeyHex } = pinnedAttestation();
+  return {
+    statusBytes,
+    attestationBytes,
+    trustedKeys: [publicKeyHex],
+    kernelCommit: KERNEL_COMMIT,
+    mechanismInventoryDigest: INV_DIGEST,
+    controlSurfaceDigest: CTRL_DIGEST,
+    ...extra
+  };
+};
+
+test("the shipped subject probe is honestly FOUNDATION_ONLY (no pinned attestation key)", () => {
   const result = spawnSync(process.execPath, ["src/cli.mjs", "--subject-probe"], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8"
   });
-
   assert.equal(result.status, 0);
   assert.equal(result.stderr, "");
-  assert.deepEqual(JSON.parse(result.stdout), {
-    schemaVersion: "harness-bench-subject-probe@1",
-    subject: "shedu-promotion-kernel",
-    implementationStatus: "EXPERIMENTAL",
-    capabilities: [...EXPERIMENTAL_CAPABILITIES],
-    promotionEntrypointAvailable: true
-  });
+  const probe = JSON.parse(result.stdout);
+  assert.equal(probe.implementationStatus, "FOUNDATION_ONLY");
+  assert.equal(probe.promotionEntrypointAvailable, false);
 });
 
-test("the status transition is evidence-controlled and fails safe", () => {
-  const statusBytes = readFileSync(new URL("../conformance/status.json", import.meta.url));
+test("admission machinery elevates ONLY with recomputed status + a pinned signed attestation", () => {
+  const ok = computeAdmission(baseOk());
+  assert.equal(ok.status, "EXPERIMENTAL");
+  assert.equal(ok.admitted, true);
+  const probe = subjectProbe(ok);
+  assert.equal(probe.implementationStatus, "EXPERIMENTAL");
+  assert.deepEqual(probe.capabilities, [...EXPERIMENTAL_CAPABILITIES]);
+  assert.equal(probe.promotionEntrypointAvailable, true);
+});
 
-  // The committed, valid evidence elevates.
-  assert.equal(subjectProbe(statusBytes).implementationStatus, "EXPERIMENTAL");
-
-  // No evidence → FOUNDATION_ONLY, entrypoint hidden.
-  const missing = subjectProbe(null);
-  assert.equal(missing.implementationStatus, "FOUNDATION_ONLY");
-  assert.equal(missing.promotionEntrypointAvailable, false);
-
-  // Evidence for a different kernel release cannot elevate this one.
+test("a contradictory or unsigned status cannot elevate the subject", () => {
+  // allPassed asserted true while a case is actually BLOCKED-conforming.
   const status = JSON.parse(statusBytes.toString("utf8"));
-  const staleRelease = { ...status, kernelRelease: "@shedu/promotion-kernel@0.0.0-foundation" };
-  assert.equal(subjectProbe(Buffer.from(canonicalize(staleRelease))).implementationStatus, "FOUNDATION_ONLY");
+  const contradictory = { ...status, cases: status.cases.map((c, i) => (i === 0 ? { ...c, conforming: { ...c.conforming, disposition: "BLOCKED" } } : c)) };
+  const contradictoryBytes = Buffer.from(canonicalize(contradictory), "utf8");
+  const d = deriveConformancePassed(contradictory);
+  assert.equal(d.passed, false);
+  assert.equal(computeAdmission(baseOk({ statusBytes: contradictoryBytes })).status, "FOUNDATION_ONLY");
 
-  // A failed matrix cannot elevate.
-  const failed = { ...status, allPassed: false };
-  assert.equal(subjectProbe(Buffer.from(canonicalize(failed))).implementationStatus, "FOUNDATION_ONLY");
+  // allPassed flipped to true over an unproven activation.
+  const unproven = { ...status, allPassed: true, kernelActivation: status.kernelActivation.map((a, i) => (i === 0 ? { ...a, proven: false } : a)) };
+  assert.equal(computeAdmission(baseOk({ statusBytes: Buffer.from(canonicalize(unproven), "utf8") })).status, "FOUNDATION_ONLY");
 
-  // Malformed or prose evidence cannot elevate.
-  assert.equal(subjectProbe(Buffer.from('"looks great, ship it"')).implementationStatus, "FOUNDATION_ONLY");
-  assert.equal(subjectProbe(Buffer.from("{not json")).implementationStatus, "FOUNDATION_ONLY");
+  // No attestation at all → FOUNDATION_ONLY even with a valid status.
+  assert.equal(computeAdmission({ statusBytes, trustedKeys: [], kernelCommit: KERNEL_COMMIT }).status, "FOUNDATION_ONLY");
+  // No pinned trust key → FOUNDATION_ONLY even with an attestation present.
+  const { attestationBytes } = pinnedAttestation();
+  assert.equal(computeAdmission({ statusBytes, attestationBytes, trustedKeys: [], kernelCommit: KERNEL_COMMIT }).status, "FOUNDATION_ONLY");
+});
+
+test("stale, wrong-commit, wrong-key, and replayed attestations all fail closed", () => {
+  // Wrong commit.
+  assert.equal(computeAdmission(baseOk({ kernelCommit: "b".repeat(40) })).status, "FOUNDATION_ONLY");
+  // Wrong release (stale attestation for another release).
+  const staleStatus = Buffer.from(canonicalize({ ...JSON.parse(statusBytes.toString("utf8")), kernelRelease: "@shedu/promotion-kernel@0.0.0-old" }), "utf8");
+  assert.equal(computeAdmission(baseOk({ statusBytes: staleStatus })).status, "FOUNDATION_ONLY");
+  // Wrong key: attestation signed by a key not in the trusted set.
+  const { attestationBytes } = pinnedAttestation();
+  assert.equal(
+    computeAdmission(baseOk({ attestationBytes, trustedKeys: [`${"c".repeat(64)}`] })).status,
+    "FOUNDATION_ONLY"
+  );
+  // Replay: a valid attestation for THIS status presented against a mutated
+  // status whose digest no longer matches.
+  const mutatedStatus = Buffer.from(canonicalize({ ...JSON.parse(statusBytes.toString("utf8")), cases: [] }), "utf8");
+  const admission = computeAdmission(baseOk({ statusBytes: mutatedStatus }));
+  assert.equal(admission.status, "FOUNDATION_ONLY");
+  // Inventory/control-surface binding mismatch.
+  assert.equal(computeAdmission(baseOk({ mechanismInventoryDigest: `sha256:${"9".repeat(64)}` })).status, "FOUNDATION_ONLY");
+  assert.equal(computeAdmission(baseOk({ controlSurfaceDigest: `sha256:${"9".repeat(64)}` })).status, "FOUNDATION_ONLY");
 });
 
 test("non-probe execution still fails closed", () => {
@@ -53,7 +110,6 @@ test("non-probe execution still fails closed", () => {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8"
   });
-
   assert.equal(result.status, 2);
   assert.deepEqual(JSON.parse(result.stderr), {
     schemaVersion: "promotion-kernel-error@1",
@@ -62,11 +118,10 @@ test("non-probe execution still fails closed", () => {
   });
 });
 
-test("the Bench subject contract matches the probe and current release", () => {
+test("the Bench subject contract is honestly FOUNDATION_ONLY with no promotion entrypoint", () => {
   const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
-  assert.equal(subject.implementationStatus, "EXPERIMENTAL");
-  assert.deepEqual(subject.capabilities, [...EXPERIMENTAL_CAPABILITIES]);
-  assert.deepEqual(subject.promotionArgv, ["node", "src/cli.mjs", "evaluate"]);
+  assert.equal(subject.implementationStatus, "FOUNDATION_ONLY");
+  assert.equal(subject.promotionArgv, null);
   assert.deepEqual(subject.conformanceArgv, ["node", "src/cli.mjs", "conformance"]);
   assert.match(KERNEL_RELEASE, /@shedu\/promotion-kernel@/);
 });

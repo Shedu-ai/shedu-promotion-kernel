@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { validateValue } from "../src/contracts.mjs";
@@ -11,9 +11,10 @@ const DEFAULTS = {
   commandId: "probe",
   phase: "CANDIDATE_VALIDATION",
   cwd: process.cwd(),
-  timeoutSeconds: 30,
+  timeoutMs: 30_000,
   maxOutputBytes: 1024 * 1024,
-  maxProcesses: 1
+  maxProcesses: 1,
+  readRoots: []
 };
 
 test("hostile argv round-trips byte-for-byte with no shell interpretation", () => {
@@ -72,6 +73,63 @@ test("the sandbox denies network access to target commands", () => {
   });
   assert.equal(listen.succeeded, true, listen.stderr.toString());
   assert.match(listen.stdout.toString(), /BLOCKED:EPERM/);
+});
+
+test("the sandbox denies reads outside declared roots", () => {
+  // A candidate read root is granted; a sibling temp file and a home-dir
+  // credential fixture are NOT, and reading them is blocked.
+  const candDir = mkdtempSync(join(tmpdir(), "shedu-cand-"));
+  const siblingDir = mkdtempSync(join(tmpdir(), "shedu-sibling-"));
+  writeFileSync(join(candDir, "app.mjs"), "export const app=1;\n");
+  writeFileSync(join(siblingDir, "secret.txt"), "HOST_PRIVATE_VALUE_123\n");
+  const homeCred = join(homedir(), ".shedu-runner-cred");
+  writeFileSync(homeCred, "HOME_CRED\n");
+  try {
+    const exec = runTargetCommand({
+      ...DEFAULTS,
+      cwd: candDir,
+      readRoots: [candDir],
+      injectEnv: { SIB: join(siblingDir, "secret.txt"), CRED: homeCred },
+      argv: [
+        "node",
+        "-e",
+        'const fs=require("node:fs");const r=(p)=>{try{fs.readFileSync(p);return "OK"}catch(e){return e.code}};console.log(JSON.stringify({sib:r(process.env.SIB),cred:r(process.env.CRED)}))'
+      ]
+    });
+    assert.equal(exec.succeeded, true, exec.stderr.toString());
+    const seen = JSON.parse(exec.stdout.toString());
+    assert.equal(seen.sib, "EPERM", "sibling temp file must be unreadable");
+    assert.equal(seen.cred, "EPERM", "home credential must be unreadable");
+  } finally {
+    rmSync(homeCred, { force: true });
+    rmSync(candDir, { recursive: true, force: true });
+    rmSync(siblingDir, { recursive: true, force: true });
+  }
+});
+
+test("permitted candidate and base reads succeed under the sandbox", () => {
+  const candDir = realpathSync(mkdtempSync(join(tmpdir(), "shedu-cand-")));
+  const baseDir = realpathSync(mkdtempSync(join(tmpdir(), "shedu-base-")));
+  writeFileSync(join(candDir, "app.mjs"), "CANDIDATE_OK\n");
+  writeFileSync(join(baseDir, "lib.mjs"), "BASE_OK\n");
+  try {
+    const exec = runTargetCommand({
+      ...DEFAULTS,
+      cwd: candDir,
+      readRoots: [candDir, baseDir],
+      injectEnv: { C: join(candDir, "app.mjs"), B: join(baseDir, "lib.mjs") },
+      argv: [
+        "node",
+        "-e",
+        'const fs=require("node:fs");console.log(fs.readFileSync(process.env.C,"utf8").trim()+"|"+fs.readFileSync(process.env.B,"utf8").trim())'
+      ]
+    });
+    assert.equal(exec.succeeded, true, exec.stderr.toString());
+    assert.equal(exec.stdout.toString().trim(), "CANDIDATE_OK|BASE_OK");
+  } finally {
+    rmSync(candDir, { recursive: true, force: true });
+    rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 test("the sandbox makes the filesystem read-only for target commands", () => {
@@ -159,7 +217,7 @@ test("timeouts abort the command and are reported", () => {
   const execution = runTargetCommand({
     ...DEFAULTS,
     argv: ["node", "-e", "setInterval(() => {}, 1000)"],
-    timeoutSeconds: 1
+    timeoutMs: 1000
   });
   assert.equal(execution.succeeded, false);
   assert.equal(execution.report.timedOut, true);

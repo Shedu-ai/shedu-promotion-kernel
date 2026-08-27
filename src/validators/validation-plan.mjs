@@ -1,6 +1,10 @@
 import { canonicalize } from "../canonical-json.mjs";
 import { runTargetCommand } from "../runner.mjs";
 
+// Control point: commands execute in their declared phase, one per-phase
+// check instance, bounded by the evaluation deadline.
+export const CONTROL_POINTS = Object.freeze(["phase-scheduled-execution"]);
+
 // validation-plan-execute@1 — one check instance per phase
 // (validation-plan-admission / -validation / -finalization). Each instance
 // executes exactly the contract validation commands DECLARED FOR ITS OWN
@@ -11,7 +15,7 @@ import { runTargetCommand } from "../runner.mjs";
 // omitted work can never look like a pass. Commands are exact argv arrays
 // end-to-end; there is no shell and no string reconstruction.
 export function validationPlanExecute(context) {
-  const { workContract, candidateDir, check, evidence } = context;
+  const { workContract, candidateDir, baseDir, check, evidence, deadline } = context;
   if (!candidateDir) {
     return { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], details: { failure: "no candidate workspace" } };
   }
@@ -21,8 +25,18 @@ export function validationPlanExecute(context) {
   const evidenceRefs = [];
   const reports = [];
   let infrastructureFailed = false;
+  const readRoots = baseDir ? [candidateDir, baseDir] : [candidateDir];
 
   for (const command of phaseCommands) {
+    // Recheck the monotonic deadline before EVERY command. Once exhausted,
+    // stop launching and record an explicit non-success — never a PASS.
+    const remainingMs = deadline ? deadline.remainingMs() : check.timeoutSeconds * 1000;
+    if (remainingMs <= 0) {
+      reasonCodes.add("DEADLINE_EXCEEDED");
+      reports.push({ commandId: command.commandId, executed: false, deadlineExceeded: true });
+      continue;
+    }
+    const timeoutMs = Math.min(check.timeoutSeconds * 1000, remainingMs);
     let execution;
     try {
       execution = runTargetCommand({
@@ -31,9 +45,10 @@ export function validationPlanExecute(context) {
         argv: command.argv,
         cwd: candidateDir,
         envAllowlist: [],
-        timeoutSeconds: Math.min(check.timeoutSeconds, workContract.maxRuntimeSeconds),
+        timeoutMs,
         maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
-        maxProcesses: workContract.resourceCeilings.maxProcesses
+        maxProcesses: workContract.resourceCeilings.maxProcesses,
+        readRoots
       });
     } catch (error) {
       infrastructureFailed = true;
@@ -73,6 +88,10 @@ export function validationPlanExecute(context) {
       reasonCodes.add("COMMAND_TIMEOUT");
     } else if (!execution.succeeded) {
       reasonCodes.add("COMMAND_FAILED");
+    } else if (deadline && deadline.expired()) {
+      // A command that completed only after the budget expired cannot count
+      // as a pass.
+      reasonCodes.add("DEADLINE_EXCEEDED");
     }
   }
 

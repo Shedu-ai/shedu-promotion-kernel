@@ -1,6 +1,6 @@
 # Brief — policy-pack-promotion-kernel-v1
 
-**Status:** IMPLEMENTED · steps 1–6 complete, corrected after adversarial review (OS sandbox enforcement, resource ceilings, per-phase command scheduling, containment halts, receipt-proven activation evidence) · subject EXPERIMENTAL, gated by regenerable conformance evidence (`conformance/status.json`, sha256 `001240c6199caea2e52b2190c8d8175bc6c39f7e34f9ff20a6204d8a69ecb1df`) · closeout: [`closeout-policy-pack-promotion-kernel-v1.md`](closeout-policy-pack-promotion-kernel-v1.md) · 2026-08-26.
+**Status:** IMPLEMENTED · steps 1–6 complete, corrected across two adversarial-review rounds · runtime rules now OS-ENFORCED (default-deny sandbox with confined content reads, no network, read-only FS, fork denial; monotonic evaluation deadline; cumulative-artifact, output, and process ceilings; per-phase command scheduling; containment/identity/authority/evidence halts) · activation and admission are cryptographically bound (fingerprint-bound activation pairs; a pinned-key attestation gate that no self-produced status can satisfy) · a control-surface census covers infrastructure controls the plan census cannot see · **subject is honestly FOUNDATION_ONLY** because no external attestation key is pinned in the public build — elevation machinery is implemented and tested but cannot be self-satisfied · closeout: [`closeout-policy-pack-promotion-kernel-v1.md`](closeout-policy-pack-promotion-kernel-v1.md) · 2026-08-26.
 
 ## 1. Objective
 

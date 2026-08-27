@@ -12,6 +12,9 @@ import { validateDocument } from "./contracts.mjs";
 import { reduceDisposition } from "./reducer.mjs";
 import { verifyEvidenceDir } from "./evidence.mjs";
 
+// Control points: offline receipt verification and optional Ed25519 signing.
+export const CONTROL_POINTS = Object.freeze(["receipt-verification", "receipt-signing"]);
+
 // Receipt signing and offline verification. The signature covers the
 // canonical bytes of the receipt with `signing: null`, so signing binds
 // everything else and re-signing after mutation requires the private key.

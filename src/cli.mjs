@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateDocument } from "./contracts.mjs";
@@ -9,7 +10,8 @@ import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
 import { signReceipt, verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
-import { canonicalize } from "./canonical-json.mjs";
+import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
+import { computeAdmission } from "./admission.mjs";
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -39,34 +41,53 @@ export const EXPERIMENTAL_CAPABILITIES = Object.freeze([
   "orphan-closure@1"
 ]);
 
-// The FOUNDATION_ONLY → EXPERIMENTAL transition is controlled by passing
-// conformance evidence, not an edit: the probe elevates only when the
-// committed status document is schema-valid, reports allPassed for exactly
-// this kernel release, and (being fully deterministic) is regenerable by
-// re-running the conformance matrix. Anything else fails safe to
-// FOUNDATION_ONLY.
-export function subjectProbe(statusBytes) {
-  if (statusBytes !== null && statusBytes !== undefined) {
-    const validated = validateDocument("conformance-status@1", statusBytes);
-    if (validated.ok && validated.value.allPassed === true && validated.value.kernelRelease === KERNEL_RELEASE) {
-      return {
-        schemaVersion: "harness-bench-subject-probe@1",
-        subject: "shedu-promotion-kernel",
-        implementationStatus: "EXPERIMENTAL",
-        capabilities: [...EXPERIMENTAL_CAPABILITIES],
-        promotionEntrypointAvailable: true
-      };
-    }
+// The FOUNDATION_ONLY → EXPERIMENTAL transition is never a mutable status
+// bit. `admission` is computed by src/admission.mjs, which recomputes every
+// conformance invariant AND requires a detached attestation signed by a
+// pinned external key that binds the exact kernel commit. With no pinned key
+// in the public build, the honest result is FOUNDATION_ONLY.
+export function subjectProbe(admission) {
+  if (admission && admission.status === "EXPERIMENTAL" && admission.admitted === true) {
+    return {
+      schemaVersion: "harness-bench-subject-probe@1",
+      subject: "shedu-promotion-kernel",
+      implementationStatus: "EXPERIMENTAL",
+      capabilities: [...EXPERIMENTAL_CAPABILITIES],
+      promotionEntrypointAvailable: true
+    };
   }
   return { ...FOUNDATION_PROBE, capabilities: [...FOUNDATION_PROBE.capabilities] };
 }
 
-function committedStatusBytes() {
+function readIfPresent(url) {
   try {
-    return readFileSync(new URL("../conformance/status.json", import.meta.url));
+    return readFileSync(url);
   } catch {
     return null;
   }
+}
+
+function currentKernelCommit() {
+  const r = spawnSync("git", ["-C", new URL("..", import.meta.url).pathname, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH }
+  });
+  return r.status === 0 && /^[0-9a-f]{40}$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
+}
+
+// Assemble admission from committed evidence + the pinned trust root.
+export function committedAdmission() {
+  const statusBytes = readIfPresent(new URL("../conformance/status.json", import.meta.url));
+  const attestationBytes = readIfPresent(new URL("../conformance/attestation.json", import.meta.url));
+  const inventoryBytes = readIfPresent(new URL("../registry/kernel-mechanisms.json", import.meta.url));
+  const controlBytes = readIfPresent(new URL("../registry/control-surface.json", import.meta.url));
+  return computeAdmission({
+    statusBytes,
+    attestationBytes,
+    kernelCommit: currentKernelCommit(),
+    mechanismInventoryDigest: inventoryBytes ? digestOfBytes(inventoryBytes) : null,
+    controlSurfaceDigest: controlBytes ? digestOfBytes(controlBytes) : null
+  });
 }
 
 function emitError(reasonCode, errors) {
@@ -167,6 +188,15 @@ function runEvaluate(argv) {
     ]);
   const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
+
+  // The promotion entrypoint is gated by the SAME admission the probe uses.
+  // Direct `evaluate` cannot bypass it: unless the subject is admitted to
+  // EXPERIMENTAL, promotion is refused.
+  const admission = committedAdmission();
+  if (!admission.admitted) {
+    return emitError("NOT_ADMITTED", admission.reasons.map((message) => ({ reasonCode: "NOT_ADMITTED", message })));
+  }
+
   let contractBytes;
   try {
     contractBytes = readFileSync(flags.get("--contract"));
@@ -248,7 +278,7 @@ function runConformanceCommand(argv) {
 
 export function main(argv = process.argv.slice(2)) {
   if (argv.length === 1 && argv[0] === "--subject-probe") {
-    process.stdout.write(`${JSON.stringify(subjectProbe(committedStatusBytes()))}\n`);
+    process.stdout.write(`${JSON.stringify(subjectProbe(committedAdmission()))}\n`);
     return 0;
   }
 

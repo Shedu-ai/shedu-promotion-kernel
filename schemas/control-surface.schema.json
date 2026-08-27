@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/control-surface.schema.json",
+  "title": "control-surface@1",
+  "description": "Registered inventory of every disposition- or admission-affecting control. Registration lives here; implementation is discovered independently by scanning source for CONTROL_POINTS exports. The census requires the two independently-derived sets to be equal, and each control to have an invocation symbol and proving tests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "controls"],
+  "properties": {
+    "schemaVersion": {"const": "control-surface@1"},
+    "controls": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "definedIn", "invocationSymbol", "provingTests", "dispositionEffect"],
+        "properties": {
+          "id": {"$ref": "#/$defs/kebabId"},
+          "kind": {"enum": ["isolation", "ceiling", "scheduling", "routing", "verification", "admission", "census"]},
+          "definedIn": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^src/[A-Za-z0-9._/-]+\\.mjs$"},
+          "invocationSymbol": {"type": "string", "minLength": 1, "maxLength": 128},
+          "provingTests": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 256}
+          },
+          "dispositionEffect": {"type": "boolean"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128}
+  }
+}

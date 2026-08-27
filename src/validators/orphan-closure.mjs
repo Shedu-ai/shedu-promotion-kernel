@@ -3,7 +3,8 @@ import { MANDATORY_PACK_IDS } from "../compiler.mjs";
 import { implementedBuiltinValidatorIds } from "../builtin-validators.mjs";
 import { planCheckValidatorId } from "../census.mjs";
 import { readAuthorityBlob } from "../authority.mjs";
-import { verifyActivationPair } from "../activation.mjs";
+import { verifyActivationPair, fingerprintFromCurrentPlan } from "../activation.mjs";
+import { validatorDigestForPlanCheck } from "../validator-digest.mjs";
 
 // orphan-closure-verify@1 — PROMOTION_FINALIZATION.
 // Enforces the no-orphan admission law over the TARGET's mechanism registry
@@ -43,26 +44,35 @@ function loadActivationFile(repoDir, baseCommit, path, expectedDigest) {
 }
 
 // Liveness above LANDED_ONLY is never self-asserted: it requires verified
-// activation-pair evidence, hash-bound to the trusted base.
-function verifyMechanismActivation({ repoDir, baseCommit, mechanism }) {
+// activation-pair evidence, hash-bound to the trusted base, whose fingerprint
+// also matches the CURRENT registry row and the CURRENT dispatched plan check
+// — same validator bytes, pack, phase, effect, and consumer, not merely the
+// same checkId.
+function verifyMechanismActivation({ repoDir, baseCommit, mechanism, plan, currentValidatorDigest, trustPolicy }) {
   if (mechanism.activationEvidence === null) {
     return { ok: false, message: `mechanism ${mechanism.mechanismId} claims ${mechanism.status} without activation evidence` };
   }
   const files = {};
   for (const [side, ref] of Object.entries(mechanism.activationEvidence)) {
     const receipt = loadActivationFile(repoDir, baseCommit, ref.receiptPath, ref.receiptDigest);
-    const plan = loadActivationFile(repoDir, baseCommit, ref.planPath, ref.planDigest);
-    if (!receipt || !plan) {
+    const planBytes = loadActivationFile(repoDir, baseCommit, ref.planPath, ref.planDigest);
+    if (!receipt || !planBytes) {
       return { ok: false, message: `mechanism ${mechanism.mechanismId} ${side} activation evidence is missing or does not match its pinned digest` };
     }
-    files[side] = { receipt, plan };
+    files[side] = { receipt, plan: planBytes };
+  }
+  const expected = fingerprintFromCurrentPlan(plan, mechanism.mechanismId, currentValidatorDigest);
+  if (!expected.ok) {
+    return { ok: false, message: `mechanism ${mechanism.mechanismId}: ${expected.message}` };
   }
   const pair = verifyActivationPair({
     conformingReceiptBytes: files.conforming.receipt,
     conformingPlanBytes: files.conforming.plan,
     plantedReceiptBytes: files.negative.receipt,
     plantedPlanBytes: files.negative.plan,
-    checkId: mechanism.mechanismId
+    checkId: mechanism.mechanismId,
+    expectedFingerprint: expected.fingerprint,
+    trustPolicy
   });
   if (!pair.ok) {
     return { ok: false, message: pair.errors.map((e) => e.message).join("; ") };
@@ -143,7 +153,10 @@ export function orphanClosureVerify(context) {
       const activation = verifyMechanismActivation({
         repoDir,
         baseCommit: workContract.target.baseCommit,
-        mechanism
+        mechanism,
+        plan,
+        currentValidatorDigest: validatorDigestForPlanCheck(repoDir, workContract.target.baseCommit, dispatched),
+        trustPolicy: context.activationTrustPolicy ?? { requireSignature: false, trustedPublicKeys: [] }
       });
       if (!activation.ok) {
         reasonCodes.add("ACTIVATION_EVIDENCE_INVALID");

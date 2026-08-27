@@ -27,7 +27,7 @@ function evaluatedRun({ mutateRepo } = {}) {
     outcome,
     receiptBytes: readFileSync(join(dir, "receipt.json")),
     planBytes: readFileSync(join(dir, "plan.json")),
-    evidenceDir: join(dir, "evidence"),
+    evidenceDir: join(dir, "artifacts", "evidence"),
     dir
   };
 }
@@ -80,7 +80,7 @@ test("a tampered result cannot survive verification", () => {
   const verification = verifyReceipt({
     receiptBytes: Buffer.from(canonicalize(receipt), "utf8"),
     planBytes: readFileSync(join(dir, "plan.json")),
-    evidenceDir: join(dir, "evidence")
+    evidenceDir: join(dir, "artifacts", "evidence")
   });
   assert.equal(verification.ok, false, "laundered receipt must not verify");
   assert.ok(verification.errors.some((e) => e.reasonCode === "EVIDENCE_MUTATED"));
@@ -174,27 +174,30 @@ test("the verify-receipt CLI verifies and fails closed, machine-readably", () =>
   assert.equal(JSON.parse(bad.stdout).ok, false);
 });
 
-test("the evaluate CLI signs receipts when given a key", () => {
-  const target = buildTargetRepo();
-  writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
-  const candidate = commitAll(target.repoDir, "conforming feature");
-  const contractPath = join(mkdtempSync(join(tmpdir(), "shedu-sign-")), "contract.json");
-  writeFileSync(contractPath, contractBytesOf(target.contractFor(candidate)));
-  const keyPath = join(mkdtempSync(join(tmpdir(), "shedu-key-")), "key.pem");
-  writeFileSync(keyPath, generateSigningKeyPem());
-  const dir = outDir();
-  const run = spawnSync(
+test("a signed receipt round-trips through the verify-receipt CLI with a pinned key", () => {
+  const run = evaluatedRun();
+  const keyPem = generateSigningKeyPem();
+  const signed = signReceipt(JSON.parse(run.receiptBytes.toString("utf8")), keyPem);
+  const dir = mkdtempSync(join(tmpdir(), "shedu-signed-"));
+  const receiptPath = join(dir, "receipt.json");
+  const planPath = join(dir, "plan.json");
+  writeFileSync(receiptPath, Buffer.from(canonicalize(signed), "utf8"));
+  writeFileSync(planPath, run.planBytes);
+  const cli = spawnSync(
     process.execPath,
-    ["src/cli.mjs", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", dir, "--sign-key", keyPath],
+    ["src/cli.mjs", "verify-receipt", "--receipt", receiptPath, "--plan", planPath, "--public-key", signed.signing.publicKey],
     { cwd: new URL("..", import.meta.url), encoding: "utf8" }
   );
-  assert.equal(run.status, 0, run.stderr);
-  const receipt = JSON.parse(run.stdout);
-  assert.equal(receipt.signing.algorithm, "ed25519");
-  const verification = verifyReceipt({
-    receiptBytes: readFileSync(join(dir, "receipt.json")),
-    planBytes: readFileSync(join(dir, "plan.json")),
-    expectedPublicKey: receipt.signing.publicKey
-  });
-  assert.equal(verification.ok, true, JSON.stringify(verification.errors));
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(JSON.parse(cli.stdout).ok, true);
+
+  // A different pinned key is rejected.
+  const other = signReceipt(JSON.parse(run.receiptBytes.toString("utf8")), generateSigningKeyPem());
+  const badKey = spawnSync(
+    process.execPath,
+    ["src/cli.mjs", "verify-receipt", "--receipt", receiptPath, "--plan", planPath, "--public-key", other.signing.publicKey],
+    { cwd: new URL("..", import.meta.url), encoding: "utf8" }
+  );
+  assert.equal(badKey.status, 2);
+  assert.equal(JSON.parse(badKey.stdout).ok, false);
 });

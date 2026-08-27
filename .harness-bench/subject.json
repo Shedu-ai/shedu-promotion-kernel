@@ -9,11 +9,7 @@
     "src/cli.mjs",
     "--subject-probe"
   ],
-  "promotionArgv": [
-    "node",
-    "src/cli.mjs",
-    "evaluate"
-  ],
+  "promotionArgv": null,
   "conformanceArgv": [
     "node",
     "src/cli.mjs",
@@ -22,18 +18,8 @@
   "capabilities": [
     "exact-argv@1",
     "immutable-subject-identity@1",
-    "promotion-kernel-contract@1",
-    "policy-pack-compiler@1",
-    "mandatory-packs@1",
-    "disposition-reducer@1",
-    "target-command-runner@1",
-    "evidence-index@1",
-    "promotion-receipt@1",
-    "receipt-verification@1",
-    "orphan-census@1",
-    "prior-art-admission@1",
-    "orphan-closure@1"
+    "promotion-kernel-contract@1"
   ],
-  "implementationStatus": "EXPERIMENTAL",
+  "implementationStatus": "FOUNDATION_ONLY",
   "commitShaSource": "RESOLVE_AND_FREEZE_BEFORE_PLAN"
 }

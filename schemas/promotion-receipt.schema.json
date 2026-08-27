@@ -11,6 +11,7 @@
     "repositoryId",
     "baseCommit",
     "candidate",
+    "artifactRoot",
     "digests",
     "checkResults",
     "changedFiles",
@@ -34,6 +35,7 @@
         "id": {"$ref": "#/$defs/commitId"}
       }
     },
+    "artifactRoot": {"$ref": "#/$defs/relativePath"},
     "digests": {
       "type": "object",
       "additionalProperties": false,

@@ -1,7 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { digestOfBytes } from "./canonical-json.mjs";
 import { isSecretEnvName, validateValue } from "./contracts.mjs";
 import { isolateArgv } from "./sandbox.mjs";
+
+// Control point: output ceiling is enforced here by clamping captured bytes.
+export const CONTROL_POINTS = Object.freeze(["command-output-ceiling"]);
 
 // Exact-argv target-command runner. Never a shell: argv[0] is the executable
 // and every element is passed byte-for-byte. Every command executes inside
@@ -48,31 +52,40 @@ export function runTargetCommand({
   cwd,
   envAllowlist = [],
   injectEnv = {},
-  timeoutSeconds,
+  timeoutMs,
   maxOutputBytes,
-  maxProcesses
+  maxProcesses,
+  readRoots = []
 }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) {
     throw new Error("argv must be a non-empty array of non-empty strings");
   }
-  if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds < 1) {
-    throw new Error("timeoutSeconds must be a positive integer");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error("timeoutMs must be a positive integer number of milliseconds");
   }
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) {
     throw new Error("maxOutputBytes must be a positive integer");
   }
 
+  // Canonicalize the working directory and read roots to their real paths so
+  // the child never traverses a symlink (e.g. macOS /var -> /private/var)
+  // that the sandbox profile does not grant.
+  const realCwd = realpathSync(cwd);
+  const realReadRoots = readRoots.map((r) => realpathSync(r));
+
   // The report echoes the exact declared argv; isolation is transport.
   // isolateArgv throws SandboxUnavailableError when enforcement is
   // impossible — nothing runs unsandboxed.
-  const isolated = isolateArgv(argv, { maxProcesses });
+  const isolated = isolateArgv(argv, { maxProcesses, readRoots: realReadRoots, cwd: realCwd });
   const env = buildCleanEnvironment({ envAllowlist, injectEnv });
+  // The child is bounded by the remaining evaluation budget, in
+  // milliseconds — never a rounded-up fresh timeout.
   const spawned = spawnSync(isolated[0], isolated.slice(1), {
-    cwd,
+    cwd: realCwd,
     env,
     shell: false,
     windowsHide: true,
-    timeout: timeoutSeconds * 1000,
+    timeout: timeoutMs,
     killSignal: "SIGKILL",
     maxBuffer: maxOutputBytes,
     encoding: "buffer"

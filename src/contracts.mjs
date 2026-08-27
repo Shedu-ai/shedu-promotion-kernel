@@ -16,7 +16,9 @@ const SCHEMA_FILES = {
   "command-report@1": "command-report.schema.json",
   "evidence-index@1": "evidence-index.schema.json",
   "prior-art-query@1": "prior-art-query.schema.json",
-  "conformance-status@1": "conformance-status.schema.json"
+  "conformance-status@1": "conformance-status.schema.json",
+  "conformance-attestation@1": "conformance-attestation.schema.json",
+  "control-surface@1": "control-surface.schema.json"
 };
 
 const schemas = new Map(

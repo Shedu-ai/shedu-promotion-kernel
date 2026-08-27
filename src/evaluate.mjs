@@ -1,15 +1,21 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalize, digestOfBytes, digestOfCanonical, validateRelativePath } from "./canonical-json.mjs";
+import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
 import { validateDocument, validateValue } from "./contracts.mjs";
-import { loadAuthorityDocument, readAuthorityBlob, verifyImmutableCommit } from "./authority.mjs";
+import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
-import { BUILTIN_VALIDATORS, resolveBuiltinValidator } from "./builtin-validators.mjs";
+import { resolveBuiltinValidator } from "./builtin-validators.mjs";
 import { planCheckValidatorId } from "./census.mjs";
+import { validatorDigestForPlanCheck } from "./validator-digest.mjs";
 import { createEvidenceIndex } from "./evidence.mjs";
 import { reduceDisposition } from "./reducer.mjs";
 import { runTargetCommand } from "./runner.mjs";
+import { createDeadline } from "./deadline.mjs";
+import { verifyContractAuthorization } from "./authorization.mjs";
 import { committishForCandidate, materializeWorktree } from "./workspace.mjs";
+
+// Control points implemented in the evaluation orchestrator.
+export const CONTROL_POINTS = Object.freeze(["containment-halt-routing", "artifact-root-enforcement"]);
 
 // Zero-provider evaluation pipeline: authority resolution from the immutable
 // base, compilation with the mandatory kernel packs, isolated execution of
@@ -23,26 +29,6 @@ const PHASES = ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZ
 
 function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function builtinValidatorDigest(builtinId) {
-  const descriptor = BUILTIN_VALIDATORS[builtinId];
-  const bytes = readFileSync(new URL(descriptor.sourceFile, import.meta.url));
-  return digestOfBytes(bytes);
-}
-
-// A target command's code identity: every argv element that resolves to a
-// regular file in the trusted base tree is hash-bound before any candidate
-// evaluation, so the receipt pins the exact validator bytes that ran.
-function targetValidatorDigest(repoDir, baseCommit, argv) {
-  const resolved = [];
-  for (const element of argv) {
-    const contained = validateRelativePath(element);
-    if (!contained.ok) continue;
-    const blob = readAuthorityBlob(repoDir, baseCommit, element);
-    if (blob.ok) resolved.push({ path: element, digest: digestOfBytes(blob.bytes) });
-  }
-  return digestOfCanonical(resolved.length > 0 ? resolved : { argv });
 }
 
 // The deterministic evaluation identity: plan plus timing-stripped results
@@ -74,6 +60,10 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   if (!contract.ok) return failure(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
   const { baseCommit } = workContract.target;
+
+  // A present authorization signature is enforced, not inert.
+  const authorization = verifyContractAuthorization(workContract);
+  if (!authorization.ok) return failure(authorization.reasonCode, [authorization]);
 
   const commit = verifyImmutableCommit(repoDir, baseCommit);
   if (!commit.ok) return failure(commit.reasonCode, [commit]);
@@ -152,7 +142,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   const { plan, planDigest } = compiled;
 
   mkdirSync(outDir, { recursive: true });
-  const evidenceRootDir = join(outDir, "evidence");
+  // artifactRoot is mechanically load-bearing: evidence is written under it,
+  // and the receipt records it. It is a contract-declared, path-contained
+  // relative directory; the caller's outDir is the operational mount point.
+  const artifactRootRel = workContract.artifactRoot.replace(/\/+$/, "");
+  const evidenceRootDir = join(outDir, artifactRootRel, "evidence");
   const evidence = createEvidenceIndex({
     rootDir: evidenceRootDir,
     maxTotalBytes: workContract.resourceCeilings.maxArtifactBytes,
@@ -168,10 +162,10 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   });
 
   const startedAt = nowIso();
-  // Evaluation-wide deadline: maxRuntimeSeconds bounds the whole run, and
-  // per-command timeouts never exceed the remaining budget.
-  const deadlineMs = Date.now() + workContract.maxRuntimeSeconds * 1000;
-  const remainingSeconds = () => Math.max(1, Math.ceil((deadlineMs - Date.now()) / 1000));
+  // Evaluation-wide deadline: a MONOTONIC absolute bound over the whole run.
+  // Per-command timeouts never exceed the remaining budget, and a check that
+  // finishes after exhaustion cannot be recorded PASS.
+  const deadline = createDeadline(workContract.maxRuntimeSeconds * 1000);
   const results = [];
   let changedFiles = [];
   let haltCode = null;
@@ -180,6 +174,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   const candidateCommittish = committishForCandidate(repoDir, workContract.target.candidate);
   const baseWorktree = materializeWorktree(repoDir, baseCommit);
   const candidateWorktree = materializeWorktree(repoDir, candidateCommittish);
+  // Canonical real paths so sandboxed commands never traverse a symlink the
+  // sandbox does not grant, and so injected dir env vars point at grantable
+  // paths.
+  const baseRealDir = realpathSync(baseWorktree.dir);
+  const candidateRealDir = realpathSync(candidateWorktree.dir);
   try {
     for (const check of plan.checks) {
       if (lastPhase !== null && check.phase !== lastPhase) {
@@ -188,7 +187,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
       lastPhase = check.phase;
       const checkStarted = nowIso();
 
-      if (haltCode === null && Date.now() >= deadlineMs) haltCode = "DEADLINE_EXCEEDED";
+      if (haltCode === null && deadline.expired()) haltCode = "DEADLINE_EXCEEDED";
       if (haltCode !== null) {
         // Explicit non-success record for skipped required work.
         results.push({
@@ -217,54 +216,63 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
             plan,
             planDigest,
             check,
-            baseDir: baseWorktree.dir,
-            candidateDir: candidateWorktree.dir,
+            baseDir: baseRealDir,
+            candidateDir: candidateRealDir,
             priorResults: [...results],
             evidence,
             evidenceRootDir,
             capabilityIndex,
             priorArtQuery,
-            mechanismRegistry
+            mechanismRegistry,
+            deadline
           });
         } else {
-          const execution = runTargetCommand({
-            commandId: check.checkId,
-            phase: check.phase,
-            argv: check.validator.argv,
-            cwd: baseWorktree.dir,
-            envAllowlist: check.envAllowlist,
-            injectEnv: {
-              KERNEL_BASE_DIR: baseWorktree.dir,
-              KERNEL_CANDIDATE_DIR: candidateWorktree.dir
-            },
-            timeoutSeconds: Math.min(check.timeoutSeconds, remainingSeconds()),
-            maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
-            maxProcesses: workContract.resourceCeilings.maxProcesses
-          });
-          const refs = [
-            evidence.put({
-              artifactId: `target-report-${check.checkId}`,
-              checkId: check.checkId,
-              validatorId: planCheckValidatorId(check),
-              bytes: Buffer.from(canonicalize(execution.report), "utf8"),
-              mediaType: "application/json"
-            }),
-            evidence.put({
-              artifactId: `target-stdout-${check.checkId}`,
-              checkId: check.checkId,
-              validatorId: planCheckValidatorId(check),
-              bytes: execution.stdout,
-              mediaType: "application/octet-stream"
-            })
-          ];
-          if (execution.spawnFailed) {
-            partial = { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], evidence: refs };
-          } else if (execution.report.timedOut) {
-            partial = { outcome: "FIRED", reasonCodes: ["COMMAND_TIMEOUT"], evidence: refs };
-          } else if (!execution.succeeded) {
-            partial = { outcome: "FIRED", reasonCodes: ["COMMAND_FAILED"], evidence: refs };
+          const remainingMs = deadline.remainingMs();
+          if (remainingMs <= 0) {
+            partial = { outcome: "FIRED", reasonCodes: ["DEADLINE_EXCEEDED"], evidence: [] };
           } else {
-            partial = { outcome: "PASS", reasonCodes: [], evidence: refs };
+            const execution = runTargetCommand({
+              commandId: check.checkId,
+              phase: check.phase,
+              argv: check.validator.argv,
+              cwd: baseRealDir,
+              envAllowlist: check.envAllowlist,
+              injectEnv: {
+                KERNEL_BASE_DIR: baseRealDir,
+                KERNEL_CANDIDATE_DIR: candidateRealDir
+              },
+              timeoutMs: Math.min(check.timeoutSeconds * 1000, remainingMs),
+              maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
+              maxProcesses: workContract.resourceCeilings.maxProcesses,
+              readRoots: [baseRealDir, candidateRealDir]
+            });
+            const refs = [
+              evidence.put({
+                artifactId: `target-report-${check.checkId}`,
+                checkId: check.checkId,
+                validatorId: planCheckValidatorId(check),
+                bytes: Buffer.from(canonicalize(execution.report), "utf8"),
+                mediaType: "application/json"
+              }),
+              evidence.put({
+                artifactId: `target-stdout-${check.checkId}`,
+                checkId: check.checkId,
+                validatorId: planCheckValidatorId(check),
+                bytes: execution.stdout,
+                mediaType: "application/octet-stream"
+              })
+            ];
+            if (execution.spawnFailed) {
+              partial = { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], evidence: refs };
+            } else if (execution.report.timedOut) {
+              partial = { outcome: "FIRED", reasonCodes: ["COMMAND_TIMEOUT"], evidence: refs };
+            } else if (!execution.succeeded) {
+              partial = { outcome: "FIRED", reasonCodes: ["COMMAND_FAILED"], evidence: refs };
+            } else if (deadline.expired()) {
+              partial = { outcome: "FIRED", reasonCodes: ["DEADLINE_EXCEEDED"], evidence: refs };
+            } else {
+              partial = { outcome: "PASS", reasonCodes: [], evidence: refs };
+            }
           }
         }
       } catch (error) {
@@ -340,12 +348,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   for (const check of plan.checks) {
     const validatorId = planCheckValidatorId(check);
     if (validatorDigests.has(validatorId)) continue;
-    validatorDigests.set(
-      validatorId,
-      check.validator.kind === "BUILTIN"
-        ? builtinValidatorDigest(check.validator.builtinId)
-        : targetValidatorDigest(repoDir, baseCommit, check.validator.argv)
-    );
+    validatorDigests.set(validatorId, validatorDigestForPlanCheck(repoDir, baseCommit, check));
   }
 
   const receipt = {
@@ -354,6 +357,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     repositoryId: plan.repositoryId,
     baseCommit: plan.baseCommit,
     candidate: plan.candidate,
+    artifactRoot: workContract.artifactRoot,
     digests: {
       workContract: plan.sourceDigests.workContract,
       profile: plan.sourceDigests.profile,

@@ -54,7 +54,7 @@ test("a conforming candidate evaluates to PROMOTABLE with verifiable evidence", 
   // Validator identities are digest-bound.
   assert.ok(outcome.receipt.digests.validators.length >= 5);
   // Evidence store verifies offline.
-  const verified = verifyEvidenceDir(join(outcome.outDir, "evidence"));
+  const verified = verifyEvidenceDir(join(outcome.outDir, "artifacts", "evidence"));
   assert.equal(verified.ok, true, JSON.stringify(verified.errors));
 });
 
@@ -190,7 +190,7 @@ test("evidence mutated after the run fails offline verification", () => {
     contractBytes: contractBytesOf(target.contractFor(candidate)),
     outDir: outDir()
   });
-  const evidenceDir = join(outcome.outDir, "evidence");
+  const evidenceDir = join(outcome.outDir, "artifacts", "evidence");
   const index = JSON.parse(readFileSync(join(evidenceDir, "index.json"), "utf8"));
   const victim = index.artifacts[0];
   writeFileSync(join(evidenceDir, "objects", "sha256", victim.digest.slice("sha256:".length)), "mutated");
@@ -199,7 +199,11 @@ test("evidence mutated after the run fails offline verification", () => {
   assert.ok(verified.errors.some((e) => e.reasonCode === "EVIDENCE_MUTATED"));
 });
 
-test("the evaluate CLI emits the receipt on stdout, machine errors on stderr", () => {
+test("direct evaluate is refused when the subject is not admitted", () => {
+  // The promotion entrypoint is gated by the SAME admission the probe uses.
+  // In the shipped state (no pinned attestation key) the subject is
+  // FOUNDATION_ONLY, so the CLI evaluate command fails closed with
+  // NOT_ADMITTED — direct evaluation cannot bypass the gate.
   const target = buildTargetRepo();
   const candidate = conformingCandidate(target);
   const contractPath = join(mkdtempSync(join(tmpdir(), "shedu-contract-")), "contract.json");
@@ -209,10 +213,17 @@ test("the evaluate CLI emits the receipt on stdout, machine errors on stderr", (
     ["src/cli.mjs", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir()],
     { cwd: new URL("..", import.meta.url), encoding: "utf8" }
   );
-  assert.equal(run.status, 0, run.stderr);
-  const receipt = JSON.parse(run.stdout);
-  assert.equal(receipt.schemaVersion, "promotion-receipt@1");
-  assert.equal(receipt.disposition, "PROMOTABLE");
+  assert.equal(run.status, 2, run.stdout);
+  assert.equal(JSON.parse(run.stderr).reasonCode, "NOT_ADMITTED");
+
+  // Even with a signing key the gate refuses before evaluating.
+  const withKey = spawnSync(
+    process.execPath,
+    ["src/cli.mjs", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir(), "--sign-key", "/nonexistent"],
+    { cwd: new URL("..", import.meta.url), encoding: "utf8" }
+  );
+  assert.equal(withKey.status, 2);
+  assert.equal(JSON.parse(withKey.stderr).reasonCode, "NOT_ADMITTED");
 
   const usage = spawnSync(process.execPath, ["src/cli.mjs", "evaluate", "--contract"], {
     cwd: new URL("..", import.meta.url),
