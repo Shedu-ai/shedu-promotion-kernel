@@ -167,3 +167,49 @@ Seven findings closed with engineered mechanisms and hostile tests:
 Threat boundary: a subject repository cannot prove arbitrary malicious
 modifications to itself; Harness Bench's external frozen-commit verification
 remains the ultimate authority. Resulting subject status: FOUNDATION_ONLY.
+
+## Correction round 4 (adversarial re-review)
+
+Four findings closed with engineered mechanisms and hostile tests; the
+external-admission claim is now demonstrated at the machine level.
+
+1. **Closed Git authority** (`src/git-authority.mjs`): every git operation
+   (frozen-source verification, immutable authority reads, candidate
+   inspection, worktree materialization, CLI commit discovery) resolves git
+   from a closed absolute-path set (never ambient PATH), binds its path +
+   content digest, reverifies before each use, and runs in a minimal
+   constructed environment. Proof: `test/git-authority.test.mjs` — a fake git
+   first on PATH is ignored; verifyFrozenSource on a nonexistent repo fails.
+
+2. **Manifest-bound validator identity**: a TARGET_COMMAND validator declares
+   an explicit `inputManifest`; `targetValidatorDigest` hashes exactly those
+   trusted-base blobs + the executable + toolchain digest (no import parsing,
+   no argv-only fallback), and the sandbox restricts the validator's base
+   reads to exactly the manifest files. Proof: `test/manifest-sandbox.test.mjs`
+   (undeclared base read denied), `test/toolchain.test.mjs` (a changed
+   declared helper changes the identity).
+
+3. **Production control traces**: `evaluate.mjs` records the controls that
+   ACTUALLY execute during a run and binds the trace into the receipt
+   (`controlTrace`). The control-surface census consumes a genuine production
+   trace and FAILS if a `productionObservable` control is unobserved — a
+   standalone proof cannot substitute. Admission/disposition outcomes are
+   branded; the exact `if (false)` admission bypass is defeated because the
+   production worker re-enforces admission independently. Proofs:
+   `test/production-trace.test.mjs`, `test/control-census.test.mjs`.
+
+4. **Atomic supervised output + external-admission CLI**: the supervisor
+   evaluates and finalizes (signs, bundles) into a private staging directory
+   and publishes one digest-verified bundle only on clean success; timeout,
+   worker failure, malformed summary, failed evaluation, or signing failure
+   publish nothing and purge any earlier receipt. Signing and finalization run
+   inside the supervised boundary with a bounded key read. External admission
+   material is accepted via validated CLI flags. Proofs:
+   `test/supervisor.test.mjs`, and `test/external-admission-cli.test.mjs` —
+   a CLEAN detached worktree at HEAD with an externally-signed attestation
+   obtains admission and evaluates to PROMOTABLE through the declared subject
+   contract, while wrong-key / wrong-commit / dirty-source / missing all fail.
+
+Resulting subject status: FOUNDATION_ONLY (no external key pinned in the
+public build). The external-admission machine flow is demonstrated but does
+not elevate the shipped default.
