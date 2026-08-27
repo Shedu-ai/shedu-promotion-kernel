@@ -23,24 +23,6 @@ The kernel is limited to six stages:
 
 Exploration, idea generation, brief/spec/prompt authoring, provider selection experiments, dashboards, and product-specific governance remain outside the kernel.
 
-## Harness Bench
-
-[`/.harness-bench/subject.json`](.harness-bench/subject.json) is the machine-readable connection contract. Harness Bench resolves the repository to an immutable commit, preserves each launch command as an argument array, invokes the probe, and records the exact subject identity before any experiment.
-
-The probe is evidence-gated:
-
-```sh
-npm run subject:probe
-```
-
-It reports `EXPERIMENTAL` only while the committed conformance status is schema-valid, fully passed, and pinned to the current kernel release; otherwise it falls back to `FOUNDATION_ONLY` with no promotion entrypoint.
-
-`conformance-status@2` is a portable semantic projection. Full receipts keep
-their host-bound evaluation digests and exact executable/evidence identities;
-the committed status instead binds plans, candidates, dispositions, and check
-outcomes so an external attestor can reproduce it across supported macOS
-toolchains without discarding the underlying execution evidence.
-
 ## CLI surfaces
 
 ```sh
