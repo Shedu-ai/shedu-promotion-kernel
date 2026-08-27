@@ -112,7 +112,7 @@ test("the admission caller-flag is gone and no CLI edit makes the worker promote
   // confirm the worker still refuses (the copied tree is not a clean frozen
   // git checkout, so committedAdmission() -> FOUNDATION_ONLY -> NOT_ADMITTED).
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "shedu-bypass-")));
-  for (const dir of ["src", "conformance", "registry", "packs", "schemas"]) {
+  for (const dir of ["src", "conformance", "registry", "packs", "schemas", "security"]) {
     cpSync(join(kernelRoot, dir), join(tmp, dir), { recursive: true });
   }
   cpSync(join(kernelRoot, "package.json"), join(tmp, "package.json"));

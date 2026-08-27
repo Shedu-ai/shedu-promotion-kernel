@@ -29,7 +29,7 @@ let SUP_PATH;
 
 before(async () => {
   const copy = realpathSync(mkdtempSync(join(tmpdir(), "shedu-kernelcopy-")));
-  for (const dir of ["src", "registry", "packs", "schemas", "conformance"]) {
+  for (const dir of ["src", "registry", "packs", "schemas", "conformance", "security"]) {
     cpSync(join(kernelRoot, dir), join(copy, dir), { recursive: true });
   }
   cpSync(join(kernelRoot, "package.json"), join(copy, "package.json"));

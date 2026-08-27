@@ -204,7 +204,7 @@ function createReadProjection(cwd, readFiles) {
 function attachInvocation(argv, { spawnEnv, cleanup, backend, containerName = null }) {
   Object.defineProperties(argv, {
     spawnEnv: { value: spawnEnv, enumerable: false },
-    cleanup: { value: cleanup, enumerable: false },
+    cleanup: { value: cleanup, enumerable: false, configurable: true },
     backend: { value: backend, enumerable: false },
     containerName: { value: containerName, enumerable: false }
   });
