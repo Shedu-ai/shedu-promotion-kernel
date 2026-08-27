@@ -40,7 +40,9 @@ test("the OCI transport preserves exact argv and never places environment values
   });
   const imageIndex = invocation.indexOf(LINUX_OCI_IMAGE);
   assert.ok(imageIndex > 0);
-  assert.deepEqual(invocation.slice(imageIndex + 1), [LINUX_OCI_NODE_PATH, ...hostile]);
+  assert.deepEqual(invocation.slice(imageIndex + 1), hostile);
+  const entrypointIndex = invocation.indexOf("--entrypoint");
+  assert.equal(invocation[entrypointIndex + 1], LINUX_OCI_NODE_PATH);
   assert.ok(!invocation.includes("value that must stay out of argv"));
   assert.ok(invocation.includes("SAFE_SETTING"));
   assert.equal(invocation.spawnEnv.SAFE_SETTING, "value that must stay out of argv");

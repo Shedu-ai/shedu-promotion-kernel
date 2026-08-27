@@ -248,7 +248,11 @@ export function buildLinuxOciInvocation({
   if (typeof process.getuid === "function" && typeof process.getgid === "function") {
     args.push("--user", `${process.getuid()}:${process.getgid()}`);
   }
-  args.push("--workdir", cwd, "--env", "PATH=/usr/local/bin:/usr/bin:/bin");
+  args.push(
+    "--workdir", cwd,
+    "--entrypoint", executablePath,
+    "--env", "PATH=/usr/local/bin:/usr/bin:/bin"
+  );
 
   // Mount declared roots at their identical absolute paths so the exact
   // command array needs no path rewriting. If cwd is not covered by a root,
@@ -268,7 +272,10 @@ export function buildLinuxOciInvocation({
     targetValues[name] = String(value);
     args.push("--env", name);
   }
-  args.push(authority.image.reference, executablePath, ...argvTail);
+  // Override the image entrypoint so no shell/bootstrap process runs before
+  // Node. Docker execs the verified interpreter as PID 1 with argvTail
+  // preserved exactly; the image's convenience entrypoint is not authority.
+  args.push(authority.image.reference, ...argvTail);
 
   const invocation = [authority.runtime.path, ...args];
   return attachInvocation(invocation, {
