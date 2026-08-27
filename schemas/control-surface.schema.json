@@ -15,12 +15,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "kind", "definedIn", "dispositionEffect"],
+        "required": ["id", "kind", "definedIn", "dispositionEffect", "productionObservable"],
         "properties": {
           "id": {"$ref": "#/$defs/kebabId"},
           "kind": {"enum": ["isolation", "ceiling", "scheduling", "routing", "verification", "admission", "census", "fence"]},
           "definedIn": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^src/[A-Za-z0-9._/-]+\\.mjs$"},
-          "dispositionEffect": {"type": "boolean"}
+          "dispositionEffect": {"type": "boolean"},
+          "productionObservable": {"type": "boolean", "description": "true if this control MUST appear in a genuine evaluation's production control trace; the census fails if a productionObservable control is not observed in a real run."}
         }
       }
     }

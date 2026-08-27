@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { evaluateSupervised } from "./supervisor.mjs";
-import { signReceipt, verifyReceipt } from "./receipt.mjs";
+import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
-import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
-import { computeAdmission, isAdmitted, verifyFrozenSource } from "./admission.mjs";
-import { git as gitAuthority } from "./git-authority.mjs";
+import { isAdmitted, committedAdmission } from "./admission.mjs";
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -59,61 +57,6 @@ export function subjectProbe(admission) {
     };
   }
   return { ...FOUNDATION_PROBE, capabilities: [...FOUNDATION_PROBE.capabilities] };
-}
-
-function readIfPresent(url) {
-  try {
-    return readFileSync(url);
-  } catch {
-    return null;
-  }
-}
-
-function currentKernelCommit() {
-  const r = gitAuthority(["rev-parse", "HEAD"], { cwd: new URL("..", import.meta.url).pathname });
-  return r.status === 0 && /^[0-9a-f]{40}$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
-}
-
-const repoRoot = () => new URL("..", import.meta.url).pathname;
-
-// Assemble admission from committed conformance status + EXTERNALLY-SUPPLIED
-// admission evidence. Harness Bench (or a release verifier) supplies the
-// detached attestation, the pinned public key, and the expected frozen commit
-// via environment (or CLI flags), OUTSIDE the mutable subject source:
-//   SHEDU_ATTESTATION_FILE  path to the detached conformance-attestation@1
-//   SHEDU_PINNED_KEY        the externally-pinned Ed25519 public key (hex)
-//   SHEDU_EXPECTED_COMMIT   the frozen commit the attestation must bind
-// With none supplied, the honest result is FOUNDATION_ONLY.
-export function committedAdmission(overrides = {}) {
-  const statusBytes = readIfPresent(new URL("../conformance/status.json", import.meta.url));
-  const inventoryBytes = readIfPresent(new URL("../registry/kernel-mechanisms.json", import.meta.url));
-  const controlBytes = readIfPresent(new URL("../registry/control-surface.json", import.meta.url));
-
-  const attestationPath = overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE ?? null;
-  const pinnedKey = overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY ?? null;
-  const expectedCommit = overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT ?? null;
-
-  let attestationBytes = null;
-  if (attestationPath) {
-    try {
-      attestationBytes = readFileSync(attestationPath);
-    } catch {
-      attestationBytes = null;
-    }
-  }
-
-  const source = verifyFrozenSource(repoRoot(), expectedCommit);
-
-  return computeAdmission({
-    statusBytes,
-    attestationBytes,
-    trustedKeys: pinnedKey ? [pinnedKey] : [],
-    kernelCommit: source.commit ?? currentKernelCommit(),
-    expectedCommit,
-    sourceClean: source.clean,
-    mechanismInventoryDigest: inventoryBytes ? digestOfBytes(inventoryBytes) : null,
-    controlSurfaceDigest: controlBytes ? digestOfBytes(controlBytes) : null
-  });
 }
 
 function emitError(reasonCode, errors) {
@@ -207,18 +150,40 @@ function runCompile(argv) {
   return 0;
 }
 
+// External admission material may be supplied by validated CLI flags
+// (overriding the environment): the detached attestation, the externally
+// pinned public key, and the expected frozen commit.
+function admissionOverridesFromFlags(flags) {
+  const overrides = {};
+  if (flags.has("--attestation")) overrides.attestationPath = flags.get("--attestation");
+  if (flags.has("--pinned-key")) {
+    const key = flags.get("--pinned-key");
+    if (!/^[0-9a-f]{64}$/.test(key)) return { error: "--pinned-key must be 64 lowercase hex characters" };
+    overrides.pinnedKey = key;
+  }
+  if (flags.has("--expected-commit")) {
+    const commit = flags.get("--expected-commit");
+    if (!/^[0-9a-f]{40}$/.test(commit)) return { error: "--expected-commit must be a 40-character commit id" };
+    overrides.expectedCommit = commit;
+  }
+  return { overrides };
+}
+
 function runEvaluate(argv) {
   const usage = () =>
     emitError("CLI_USAGE", [
-      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>]" }
+      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>]" }
     ]);
-  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key"]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
+
+  const parsedOverrides = admissionOverridesFromFlags(flags);
+  if (parsedOverrides.error) return emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: parsedOverrides.error }]);
 
   // The promotion entrypoint is gated by the SAME admission the probe uses.
   // Direct `evaluate` cannot bypass it: unless the subject is admitted to
   // EXPERIMENTAL, promotion is refused.
-  const admission = committedAdmission();
+  const admission = committedAdmission(parsedOverrides.overrides);
   if (!isAdmitted(admission)) {
     return emitError("NOT_ADMITTED", admission.reasons.map((message) => ({ reasonCode: "NOT_ADMITTED", message })));
   }
@@ -231,16 +196,32 @@ function runEvaluate(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
     ]);
   }
-  // The public promotion path is supervised by a hard whole-evaluation
-  // deadline in a separate worker process.
+  // The public promotion path — evaluation AND signing/finalization — is
+  // supervised by a hard whole-evaluation deadline in a separate worker
+  // process, publishing one atomic bundle only on success.
   const contract = validateDocument("work-contract@1", contractBytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const outDir = flags.get("--out");
+  // Propagate the externally-supplied admission material to the worker so it
+  // can independently re-enforce admission.
+  const workerEnv = {};
+  if (parsedOverrides.overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE) {
+    workerEnv.SHEDU_ATTESTATION_FILE = parsedOverrides.overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE;
+  }
+  if (parsedOverrides.overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY) {
+    workerEnv.SHEDU_PINNED_KEY = parsedOverrides.overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY;
+  }
+  if (parsedOverrides.overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT) {
+    workerEnv.SHEDU_EXPECTED_COMMIT = parsedOverrides.overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT;
+  }
   const supervised = evaluateSupervised({
     repoDir: flags.get("--repo"),
     contractBytes,
     outDir,
-    maxRuntimeSeconds: contract.value.maxRuntimeSeconds
+    maxRuntimeSeconds: contract.value.maxRuntimeSeconds,
+    signKeyPath: flags.has("--sign-key") ? flags.get("--sign-key") : null,
+    requireAdmission: true,
+    workerEnv
   });
   if (supervised.timedOut) {
     return emitError("DEADLINE_EXCEEDED", [
@@ -254,19 +235,6 @@ function runEvaluate(argv) {
     receiptBytes = readFileSync(join(outDir, "receipt.json"));
   } catch {
     return emitError("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "supervised evaluation produced no receipt" }]);
-  }
-  if (flags.has("--sign-key")) {
-    let keyPem;
-    try {
-      keyPem = readFileSync(flags.get("--sign-key"), "utf8");
-    } catch {
-      return emitError("SIGNATURE_INVALID", [
-        { reasonCode: "SIGNATURE_INVALID", message: `cannot read signing key ${flags.get("--sign-key")}` }
-      ]);
-    }
-    const signed = signReceipt(JSON.parse(receiptBytes.toString("utf8")), keyPem);
-    receiptBytes = Buffer.from(canonicalize(signed), "utf8");
-    writeFileSync(join(outDir, "receipt.json"), receiptBytes);
   }
   process.stdout.write(receiptBytes);
   process.stdout.write("\n");

@@ -15,6 +15,7 @@
     "digests",
     "checkResults",
     "changedFiles",
+    "controlTrace",
     "startedAt",
     "completedAt",
     "disposition",
@@ -97,6 +98,21 @@
           "path": {"$ref": "#/$defs/relativePath"},
           "changeKind": {"enum": ["ADDED", "MODIFIED", "DELETED", "RENAMED"]},
           "scopeClass": {"enum": ["ALLOWED", "READONLY", "FORBIDDEN", "UNCLASSIFIED"]}
+        }
+      }
+    },
+    "controlTrace": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["controlId", "invocation", "outcome", "dispositionEffect"],
+        "properties": {
+          "controlId": {"$ref": "#/$defs/kebabId"},
+          "invocation": {"type": "string", "minLength": 1, "maxLength": 128},
+          "outcome": {"type": "string", "minLength": 1, "maxLength": 64},
+          "dispositionEffect": {"type": "boolean"}
         }
       }
     },

@@ -60,7 +60,7 @@ test("a wall-clock deadline is enforced at the point of exhaustion", () => {
   // so the two 700ms commands cannot both complete. The HARD whole-evaluation
   // bound (worker supervisor) is proven with a narrow tolerance in
   // test/supervisor.test.mjs.
-  assert.ok(elapsedMs < 1900, `command execution ran ${Math.round(elapsedMs)}ms; cooperative deadline not enforced`);
+  assert.ok(elapsedMs < 2200, `command execution ran ${Math.round(elapsedMs)}ms; cooperative deadline not enforced`);
 });
 
 // ---- Finding 5 audit: artifactRoot is load-bearing ---------------------

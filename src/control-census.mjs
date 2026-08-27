@@ -46,7 +46,12 @@ export function discoverControlPoints(srcDir) {
 }
 
 // proofs is injectable so tests can exercise a removed-denial proof failure.
-export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS }) {
+// productionTrace is the union of control ids OBSERVED in genuine production
+// control traces (receipt.controlTrace from real evaluations); a control
+// marked productionObservable in the registry MUST appear there — a registered
+// control not observed in real execution fails closure, and static discovery
+// or a standalone proof cannot substitute for it.
+export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, productionTrace = null }) {
   const discovered = discoverControlPoints(srcDir);
   const registeredIds = registry.controls.map((c) => c.id);
   const registeredSet = new Set(registeredIds);
@@ -97,12 +102,30 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS }) 
     }
   }
 
+  // Production-trace closure: a control marked productionObservable MUST be
+  // observed in a genuine evaluation's control trace. A standalone proof does
+  // not substitute — this binds the census to real production execution.
+  const observed = productionTrace === null ? null : new Set(productionTrace);
+  const productionObserved = [];
+  if (observed !== null) {
+    for (const control of registry.controls) {
+      if (control.productionObservable !== true) continue;
+      if (observed.has(control.id)) {
+        productionObserved.push(control.id);
+      } else {
+        findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but was not observed in a genuine production control trace` });
+      }
+    }
+  }
+
   return {
     schemaVersion: "control-census@1",
     complete: findings.length === 0,
     discovered: [...discovered.keys()].sort(),
     registered: [...registeredIds].sort(),
     proven: [...proven].sort(),
+    productionObserved: productionObserved.sort(),
+    productionTraceProvided: observed !== null,
     ledgerEvents: ledger.events().length,
     findings: findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   };

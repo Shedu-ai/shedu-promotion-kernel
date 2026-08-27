@@ -5,127 +5,148 @@
       "id": "activation-verification",
       "kind": "verification",
       "definedIn": "src/activation.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "architecture-fence",
       "kind": "fence",
       "definedIn": "src/architecture-fence.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "artifact-root-enforcement",
       "kind": "routing",
       "definedIn": "src/evaluate.mjs",
-      "dispositionEffect": false
+      "dispositionEffect": false,
+      "productionObservable": true
     },
     {
       "id": "command-output-ceiling",
       "kind": "ceiling",
       "definedIn": "src/runner.mjs",
-      "dispositionEffect": false
+      "dispositionEffect": false,
+      "productionObservable": true
     },
     {
       "id": "conformance-status-admission",
       "kind": "admission",
       "definedIn": "src/admission.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "containment-halt-routing",
       "kind": "routing",
       "definedIn": "src/evaluate.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "contract-authorization",
       "kind": "admission",
       "definedIn": "src/authorization.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "disposition-reduction",
       "kind": "verification",
       "definedIn": "src/reducer.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "evaluation-deadline",
       "kind": "ceiling",
       "definedIn": "src/deadline.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "evaluation-supervisor",
       "kind": "ceiling",
       "definedIn": "src/supervisor.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "evidence-artifact-ceiling",
       "kind": "ceiling",
       "definedIn": "src/evidence.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "git-authority",
       "kind": "verification",
       "definedIn": "src/git-authority.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "phase-scheduled-execution",
       "kind": "scheduling",
       "definedIn": "src/validators/validation-plan.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "policy-plan-mechanism-census",
       "kind": "census",
       "definedIn": "src/census.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "receipt-signing",
       "kind": "verification",
       "definedIn": "src/receipt.mjs",
-      "dispositionEffect": false
+      "dispositionEffect": false,
+      "productionObservable": false
     },
     {
       "id": "receipt-verification",
       "kind": "verification",
       "definedIn": "src/receipt.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": false
     },
     {
       "id": "sandbox-network-isolation",
       "kind": "isolation",
       "definedIn": "src/sandbox.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "sandbox-process-ceiling",
       "kind": "isolation",
       "definedIn": "src/sandbox.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "sandbox-read-isolation",
       "kind": "isolation",
       "definedIn": "src/sandbox.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "sandbox-write-isolation",
       "kind": "isolation",
       "definedIn": "src/sandbox.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     },
     {
       "id": "toolchain-authority",
       "kind": "verification",
       "definedIn": "src/toolchain.mjs",
-      "dispositionEffect": true
+      "dispositionEffect": true,
+      "productionObservable": true
     }
   ]
 }

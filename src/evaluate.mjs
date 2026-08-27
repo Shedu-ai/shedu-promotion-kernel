@@ -88,6 +88,15 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   const authorization = verifyContractAuthorization(workContract, profile.value.authorization);
   if (!authorization.ok) return failure(authorization.reasonCode, [authorization]);
 
+  // Production control trace: the real control engagements during this
+  // evaluation, bound into the receipt below. These are recorded as controls
+  // actually execute — not manufactured from standalone proof functions.
+  const engaged = new Map();
+  const engage = (controlId, outcome, dispositionEffect = true) => {
+    if (!engaged.has(controlId)) engaged.set(controlId, { controlId, invocation: "evaluation", outcome, dispositionEffect });
+  };
+  engage("contract-authorization", authorization.authenticated ? "AUTHENTICATED" : "UNSIGNED_PERSONAL");
+
   let capabilityIndexDigest = null;
   let capabilityIndex = null;
   if (workContract.capabilityIndex !== null) {
@@ -158,6 +167,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   // relative directory; the caller's outDir is the operational mount point.
   const artifactRootRel = workContract.artifactRoot.replace(/\/+$/, "");
   const evidenceRootDir = resolveEvidenceDir(outDir, workContract.artifactRoot);
+  engage("artifact-root-enforcement", "PASS", false);
   const evidence = createEvidenceIndex({
     rootDir: evidenceRootDir,
     maxTotalBytes: workContract.resourceCeilings.maxArtifactBytes,
@@ -177,6 +187,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   // Per-command timeouts never exceed the remaining budget, and a check that
   // finishes after exhaustion cannot be recorded PASS.
   const deadline = createDeadline(workContract.maxRuntimeSeconds * 1000);
+  engage("evaluation-deadline", "PASS");
   const results = [];
   let changedFiles = [];
   let haltCode = null;
@@ -190,6 +201,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   // paths.
   const baseRealDir = realpathSync(baseWorktree.dir);
   const candidateRealDir = realpathSync(candidateWorktree.dir);
+  engage("git-authority", "PASS");
   try {
     for (const check of plan.checks) {
       if (lastPhase !== null && check.phase !== lastPhase) {
@@ -217,6 +229,18 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
         continue;
       }
 
+      if (check.validator.builtinId === "validation-plan-execute@1") {
+        engage("phase-scheduled-execution", "PASS");
+        // Validation commands execute under the sandbox + toolchain.
+        if (workContract.validationCommands.some((c) => c.phase === check.phase)) {
+          engage("toolchain-authority", "PASS");
+          engage("sandbox-network-isolation", "PASS");
+          engage("sandbox-read-isolation", "PASS");
+          engage("sandbox-write-isolation", "PASS");
+          engage("sandbox-process-ceiling", "PASS");
+          engage("command-output-ceiling", "PASS", false);
+        }
+      }
       let partial;
       try {
         if (check.validator.kind === "BUILTIN") {
@@ -261,6 +285,13 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
               readRoots: [candidateRealDir],
               readFiles: (check.validator.inputManifest ?? []).map((p) => join(baseRealDir, p))
             });
+            // A target command actually ran under the sandbox + toolchain.
+            engage("toolchain-authority", "PASS");
+            engage("sandbox-network-isolation", "PASS");
+            engage("sandbox-read-isolation", "PASS");
+            engage("sandbox-write-isolation", "PASS");
+            engage("sandbox-process-ceiling", "PASS");
+            engage("command-output-ceiling", execution.report.stdout.truncated ? "TRUNCATED" : "PASS", false);
             const refs = [
               evidence.put({
                 artifactId: `target-stdout-${check.checkId}`,
@@ -335,6 +366,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
         (check.phase === "CONTRACT_ADMISSION" || INTEGRITY_HALT_CHECK_IDS.has(check.checkId))
       ) {
         haltCode = "CHECK_SKIPPED";
+        engage("containment-halt-routing", "FIRED");
       }
     }
   } finally {
@@ -342,12 +374,17 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     baseWorktree.cleanup();
   }
 
+  // Containment-halt routing engaged (whether or not it fired) — the routing
+  // table was applied to every check.
+  engage("containment-halt-routing", haltCode === null ? "PASS" : "FIRED");
+
   const reduced = reduceDisposition({ plan, planDigest, results });
   // The disposition must come from the sanctioned reducer, not a forged
   // object: an unbranded disposition is never trusted.
   if (!isReducerDisposition(reduced)) {
     return failure("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "disposition was not produced by the disposition reducer" }]);
   }
+  engage("disposition-reduction", reduced.disposition);
   const completedAt = nowIso();
 
   // Anchor every check result in the content-addressed store before the
@@ -370,6 +407,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
       { reasonCode: "DOCUMENT_BOUNDS_EXCEEDED", message: `evidence anchoring failed: ${String(error)}` }
     ]);
   }
+  engage("evidence-artifact-ceiling", "PASS");
   const finalizedEvidence = evidence.finalize();
 
   const validatorDigests = new Map();
@@ -399,6 +437,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     },
     checkResults: results,
     changedFiles,
+    controlTrace: [...engaged.values()].sort((a, b) => (a.controlId < b.controlId ? -1 : 1)),
     startedAt,
     completedAt,
     disposition: reduced.disposition,

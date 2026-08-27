@@ -259,6 +259,7 @@ test("check result and receipt schemas accept valid documents and reject unknown
     },
     checkResults: [checkResult],
     changedFiles: [{ path: "src/index.mjs", changeKind: "MODIFIED", scopeClass: "ALLOWED" }],
+    controlTrace: [{ controlId: "disposition-reduction", invocation: "evaluation", outcome: "BLOCKED", dispositionEffect: true }],
     startedAt: "2026-08-26T00:00:00Z",
     completedAt: "2026-08-26T00:00:05Z",
     disposition: "BLOCKED",

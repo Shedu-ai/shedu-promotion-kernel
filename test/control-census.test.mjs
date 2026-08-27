@@ -103,6 +103,37 @@ test("the architecture fence forbids constructing admitted/promotable outcomes o
   assert.equal(isAdmitted({ admitted: true, status: "EXPERIMENTAL" }), false);
 });
 
+test("the census consumes a genuine production trace and fails if a productionObservable control is unobserved", async () => {
+  const { evaluateCandidate } = await import("../src/evaluate.mjs");
+  const { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } = await import("./fixtures.mjs");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const target = buildTargetRepo();
+  writeRepoFile(target.repoDir, "src/feature.mjs", "export const f = 2;\n");
+  const candidate = commitAll(target.repoDir, "feature");
+  const outcome = evaluateCandidate({
+    repoDir: target.repoDir,
+    contractBytes: contractBytesOf(target.contractFor(candidate)),
+    outDir: mkdtempSync(join(tmpdir(), "shedu-census-trace-"))
+  });
+  const trace = outcome.receipt.controlTrace.map((e) => e.controlId);
+
+  // With the genuine trace, every productionObservable control is observed.
+  const ok = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionTrace: trace });
+  assert.equal(ok.complete, true, JSON.stringify(ok.findings, null, 2));
+  assert.ok(ok.productionObserved.includes("disposition-reduction"));
+  assert.ok(ok.productionObserved.includes("sandbox-network-isolation"));
+
+  // Dropping a productionObservable control from the trace fails closure —
+  // a standalone proof cannot substitute for real production observation.
+  const missing = trace.filter((id) => id !== "disposition-reduction");
+  const bad = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionTrace: missing });
+  assert.equal(bad.complete, false);
+  assert.ok(bad.findings.some((f) => f.id === "disposition-reduction" && f.reasonCode === "CONTROL_UNOBSERVED"));
+});
+
 test("discovery reads the filesystem independently of the registry", () => {
   const discovered = discoverControlPoints(SRC);
   assert.equal(discovered.get("sandbox-network-isolation"), "src/sandbox.mjs");

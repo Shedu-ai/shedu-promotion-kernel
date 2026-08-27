@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
@@ -148,6 +149,58 @@ export function computeAdmission({
 
   if (reasons.length > 0) return foundationOutcome(reasons);
   return experimentalOutcome();
+}
+
+function readIfPresent(url) {
+  try {
+    return readFileSync(url);
+  } catch {
+    return null;
+  }
+}
+
+function currentKernelCommit(repoDir) {
+  const r = git(["rev-parse", "HEAD"], { cwd: repoDir });
+  return r.status === 0 && /^[0-9a-f]{40}$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
+}
+
+// Assemble admission from the committed conformance status + EXTERNALLY-
+// supplied admission evidence (attestation, pinned key, expected commit) via
+// environment or explicit overrides. This is the AUTHORITATIVE admission gate:
+// both the CLI and the supervised promotion worker call it, so bypassing the
+// CLI's early check does not bypass admission. With no external evidence, the
+// result is FOUNDATION_ONLY.
+export function committedAdmission(overrides = {}) {
+  const repoDir = new URL("..", import.meta.url).pathname;
+  const statusBytes = readIfPresent(new URL("../conformance/status.json", import.meta.url));
+  const inventoryBytes = readIfPresent(new URL("../registry/kernel-mechanisms.json", import.meta.url));
+  const controlBytes = readIfPresent(new URL("../registry/control-surface.json", import.meta.url));
+
+  const attestationPath = overrides.attestationPath ?? process.env.SHEDU_ATTESTATION_FILE ?? null;
+  const pinnedKey = overrides.pinnedKey ?? process.env.SHEDU_PINNED_KEY ?? null;
+  const expectedCommit = overrides.expectedCommit ?? process.env.SHEDU_EXPECTED_COMMIT ?? null;
+
+  let attestationBytes = null;
+  if (attestationPath) {
+    try {
+      attestationBytes = readFileSync(attestationPath);
+    } catch {
+      attestationBytes = null;
+    }
+  }
+
+  const source = verifyFrozenSource(repoDir, expectedCommit);
+
+  return computeAdmission({
+    statusBytes,
+    attestationBytes,
+    trustedKeys: pinnedKey ? [pinnedKey] : [],
+    kernelCommit: source.commit ?? currentKernelCommit(repoDir),
+    expectedCommit,
+    sourceClean: source.clean,
+    mechanismInventoryDigest: inventoryBytes ? digestOfBytes(inventoryBytes) : null,
+    controlSurfaceDigest: controlBytes ? digestOfBytes(controlBytes) : null
+  });
 }
 
 // For producing an attestation in tests / by an external signer.
