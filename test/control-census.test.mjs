@@ -33,7 +33,7 @@ test("the runtime ledger closes (registration == implementation == proven) but t
   // But with NO production evidence, the census is INCOMPLETE — it does not
   // vacuously pass. Every productionObservable control is reported unobserved.
   assert.equal(report.complete, false);
-  assert.equal(report.productionTraceProvided, false);
+  assert.equal(report.productionEvidenceProvided, false);
   assert.ok(report.findings.length > 0);
   assert.ok(report.findings.every((f) => f.reasonCode === "CONTROL_UNOBSERVED"));
   assert.ok(report.findings.some((f) => f.id === "disposition-reduction"));
@@ -119,15 +119,22 @@ test("the census consumes a genuine production trace and fails if a productionOb
   const target = buildTargetRepo();
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const f = 2;\n");
   const candidate = commitAll(target.repoDir, "feature");
+  const runDir = mkdtempSync(join(tmpdir(), "shedu-census-trace-"));
   const outcome = evaluateCandidate({
     repoDir: target.repoDir,
     contractBytes: contractBytesOf(target.contractFor(candidate)),
-    outDir: mkdtempSync(join(tmpdir(), "shedu-census-trace-"))
+    outDir: runDir
   });
+  const productionRun = {
+    outcome,
+    receiptBytes: readFileSync(join(runDir, "receipt.json")),
+    planBytes: readFileSync(join(runDir, "plan.json")),
+    evidenceDir: join(runDir, "artifacts", "evidence")
+  };
   // With the genuine RECEIPT, every productionObservable control is observed,
   // and the census verifies the trace is bound to the receipt's run identity
   // and that disposition-reduction agrees with the final disposition.
-  const ok = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [outcome.receipt] });
+  const ok = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionRuns: [productionRun] });
   assert.equal(ok.complete, true, JSON.stringify(ok.findings, null, 2));
   assert.ok(ok.productionObserved.includes("disposition-reduction"));
   assert.ok(ok.productionObserved.includes("sandbox-network-isolation"));
@@ -136,7 +143,11 @@ test("the census consumes a genuine production trace and fails if a productionOb
   // census's disposition-relationship check catches the mismatch.
   const tampered = JSON.parse(JSON.stringify(outcome.receipt));
   tampered.disposition = tampered.disposition === "PROMOTABLE" ? "BLOCKED" : "PROMOTABLE";
-  const mism = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [tampered] });
+  const mism = runControlCensus({
+    srcDir: SRC,
+    registry: loadRegistry(),
+    productionRuns: [{ ...productionRun, receiptBytes: Buffer.from(JSON.stringify(tampered)) }]
+  });
   assert.equal(mism.complete, false);
   assert.ok(mism.findings.some((f) => f.id === "disposition-reduction" && f.reasonCode === "CONTROL_UNOBSERVED"));
 
@@ -144,9 +155,60 @@ test("the census consumes a genuine production trace and fails if a productionOb
   // a standalone proof cannot substitute for real production observation.
   const dropped = JSON.parse(JSON.stringify(outcome.receipt));
   dropped.controlTrace = dropped.controlTrace.filter((e) => e.controlId !== "sandbox-network-isolation");
-  const bad = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionReceipts: [dropped] });
+  const bad = runControlCensus({
+    srcDir: SRC,
+    registry: loadRegistry(),
+    productionRuns: [{ ...productionRun, receiptBytes: Buffer.from(JSON.stringify(dropped)) }]
+  });
   assert.equal(bad.complete, false);
   assert.ok(bad.findings.some((f) => f.id === "sandbox-network-isolation" && f.reasonCode === "CONTROL_UNOBSERVED"));
+
+  // A bare list of ids is not a production-evidence surface anymore.
+  const idsOnly = runControlCensus({
+    srcDir: SRC,
+    registry: loadRegistry(),
+    productionTrace: loadRegistry().controls.filter((c) => c.productionObservable).map((c) => c.id)
+  });
+  assert.equal(idsOnly.complete, false);
+
+  // A receipt-shaped object with forged candidate/evidence/consumer bindings
+  // cannot contribute observations because only verified bundles are accepted.
+  const forged = JSON.parse(JSON.stringify(outcome.receipt));
+  for (const entry of forged.controlTrace) {
+    entry.candidateId = "b".repeat(40);
+    entry.evidenceIndexDigest = `sha256:${"2".repeat(64)}`;
+    entry.consumer = "forged-consumer";
+    entry.dispositionEffect = false;
+  }
+  const forgedReport = runControlCensus({
+    srcDir: SRC,
+    registry: loadRegistry(),
+    productionRuns: [{ ...productionRun, receiptBytes: Buffer.from(JSON.stringify(forged)) }]
+  });
+  assert.equal(forgedReport.complete, false);
+  assert.equal(forgedReport.productionObserved.length, 0);
+
+  // The conformance evidence projection is set-order invariant: controllers
+  // cannot change the admitted status digest merely by reordering genuine
+  // production bundles.
+  const secondTarget = buildTargetRepo();
+  writeRepoFile(secondTarget.repoDir, "src/other.mjs", "export const other = 3;\n");
+  const secondCandidate = commitAll(secondTarget.repoDir, "other feature");
+  const secondDir = mkdtempSync(join(tmpdir(), "shedu-census-trace-2-"));
+  const secondOutcome = evaluateCandidate({
+    repoDir: secondTarget.repoDir,
+    contractBytes: contractBytesOf(secondTarget.contractFor(secondCandidate)),
+    outDir: secondDir
+  });
+  const secondRun = {
+    outcome: secondOutcome,
+    receiptBytes: readFileSync(join(secondDir, "receipt.json")),
+    planBytes: readFileSync(join(secondDir, "plan.json")),
+    evidenceDir: join(secondDir, "artifacts", "evidence")
+  };
+  const forward = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionRuns: [productionRun, secondRun] });
+  const reverse = runControlCensus({ srcDir: SRC, registry: loadRegistry(), productionRuns: [secondRun, productionRun] });
+  assert.equal(forward.productionEvidenceDigest, reverse.productionEvidenceDigest);
 });
 
 test("discovery reads the filesystem independently of the registry", () => {

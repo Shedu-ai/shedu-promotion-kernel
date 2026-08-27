@@ -20,7 +20,15 @@ const STATUS = {
     { caseId: "c3", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"9".repeat(64)}`, evaluationDigest: `sha256:${"a".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"b".repeat(64)}`, evaluationDigest: `sha256:${"c".repeat(64)}`, receiptVerified: true } }
   ],
   kernelActivation: [{ mechanismId: "m1", caseId: "c1", proven: true }],
-  controlCensus: { complete: true, registered: 21, proven: 21, productionObserved: 14, findings: [] }
+  controlCensus: {
+    complete: true,
+    registered: 21,
+    proven: 21,
+    productionRequired: 14,
+    productionObserved: 14,
+    productionEvidenceDigest: `sha256:${"9".repeat(64)}`,
+    findings: []
+  }
 };
 
 const git = (dir, ...args) =>

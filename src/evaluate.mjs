@@ -27,6 +27,16 @@ export const CONTROL_POINTS = Object.freeze(["containment-halt-routing", "artifa
 // network grant exists anywhere on this path.
 
 const PHASES = ["CONTRACT_ADMISSION", "CANDIDATE_VALIDATION", "PROMOTION_FINALIZATION"];
+const EVALUATED_OUTCOME_BINDINGS = new WeakMap();
+
+// A production trace is authoritative only when it came from an evaluation
+// executed in this process. The immutable binding lives in a module-private
+// WeakMap; receipt-shaped caller data and mutable outcome fields cannot forge
+// it. Conformance consumes this binding before admitting a trace observation.
+export function evaluatedOutcomeBinding(outcome) {
+  const binding = EVALUATED_OUTCOME_BINDINGS.get(outcome);
+  return binding ? { ...binding } : null;
+}
 
 function nowIso() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -424,7 +434,12 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   // between the trace and the receipt's disposition.
   let controlTrace;
   try {
-    const controlSurface = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url), "utf8"));
+    const controlSurfaceDoc = validateDocument(
+      "control-surface@1",
+      readFileSync(new URL("../registry/control-surface.json", import.meta.url))
+    );
+    if (!controlSurfaceDoc.ok) throw new Error("kernel control-surface registry is invalid");
+    const controlSurface = controlSurfaceDoc.value;
     const registeredControlIds = controlSurface.controls.map((c) => c.id);
     const dispositionEffectById = new Map(controlSurface.controls.map((c) => [c.id, c.dispositionEffect === true]));
     const controlLedger = createControlLedger(registeredControlIds);
@@ -500,7 +515,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   writeFileSync(join(outDir, "receipt.json"), receiptBytes);
   writeFileSync(join(outDir, "plan.json"), Buffer.from(compiled.planBytes, "utf8"));
 
-  return {
+  const outcome = {
     ok: true,
     receipt,
     receiptBytes,
@@ -517,4 +532,12 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     evidenceIndexDigest: finalizedEvidence.indexDigest,
     outDir
   };
+  EVALUATED_OUTCOME_BINDINGS.set(outcome, Object.freeze({
+    receiptDigest: outcome.receiptDigest,
+    planDigest,
+    candidateId: plan.candidate.id,
+    evidenceIndexDigest: finalizedEvidence.indexDigest,
+    evidenceDir: resolveEvidenceDir(outDir, workContract.artifactRoot)
+  }));
+  return outcome;
 }

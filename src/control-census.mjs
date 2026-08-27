@@ -1,7 +1,11 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
+import { validateDocument } from "./contracts.mjs";
 import { createControlLedger } from "./control-runtime.mjs";
 import { CONTROL_PROOFS } from "./control-proofs.mjs";
+import { verifyReceipt } from "./receipt.mjs";
+import { evaluatedOutcomeBinding } from "./evaluate.mjs";
 
 // Control-surface census — RUNTIME closure, not string occurrence.
 //
@@ -46,17 +50,12 @@ export function discoverControlPoints(srcDir) {
 }
 
 // proofs is injectable so tests can exercise a removed-denial proof failure.
-// productionReceipts are genuine promotion receipts from real evaluations; the
-// census derives the OBSERVED control ids from their controlTrace AND verifies
-// each trace is bound to its receipt's run identity (compiled-plan digest) and
-// that the disposition-reduction trace entry equals the receipt's final
-// disposition. A control marked productionObservable in the registry MUST be
-// observed — a registered control not observed in real execution fails
-// closure, and static discovery or a standalone proof cannot substitute for
-// it. productionTrace (a bare union of ids) is retained only as a lower-
-// fidelity fallback. The census FAILS CLOSED: with no production evidence at
-// all, every productionObservable control is reported unobserved.
-export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, productionReceipts = null, productionTrace = null }) {
+// Production evidence is accepted ONLY as complete receipt/plan/evidence
+// bundles. Bare control ids and unverified receipt-shaped objects are not an
+// authority surface. Every bundle is verified offline before its trace can
+// contribute an observation, and every trace field is checked against the
+// verified receipt plus the control registry.
+export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, productionRuns = [] }) {
   const discovered = discoverControlPoints(srcDir);
   const registeredIds = registry.controls.map((c) => c.id);
   const registeredSet = new Set(registeredIds);
@@ -108,40 +107,96 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, pr
   }
 
   // Production-trace closure — FAIL CLOSED. A control marked
-  // productionObservable MUST be observed in a genuine evaluation's control
-  // trace; a standalone proof does not substitute. The observed set is derived
-  // from real receipts, whose traces are ALSO verified to be bound to their
-  // run identity and to agree with the receipt's final disposition.
-  let observed = null;
-  if (productionReceipts !== null) {
-    observed = new Set();
-    for (const receipt of productionReceipts) {
-      const trace = Array.isArray(receipt?.controlTrace) ? receipt.controlTrace : [];
-      const planDigest = receipt?.digests?.compiledPlan ?? null;
-      const dispEntry = trace.find((t) => t.controlId === "disposition-reduction");
-      if (!dispEntry || dispEntry.outcome !== receipt?.disposition) {
-        findings.push({ id: "disposition-reduction", reasonCode: "CONTROL_UNOBSERVED", message: "a production receipt's disposition-reduction trace does not match its final disposition" });
-      }
-      for (const t of trace) {
-        if (planDigest !== null && t.planDigest !== planDigest) {
-          findings.push({ id: t.controlId, reasonCode: "CONTROL_UNOBSERVED", message: `control ${t.controlId} trace is not bound to the receipt's run identity` });
-        }
-        observed.add(t.controlId);
-      }
+  // productionObservable MUST be observed in an independently verified run.
+  // Invalid bundles contribute ZERO observations.
+  const observed = new Set();
+  const registryById = new Map(registry.controls.map((control) => [control.id, control]));
+  const evidenceBindings = [];
+  for (const [runIndex, run] of productionRuns.entries()) {
+    const receiptBytes = run?.receiptBytes;
+    const planBytes = run?.planBytes;
+    const evidenceDir = run?.evidenceDir;
+    const executionBinding = evaluatedOutcomeBinding(run?.outcome);
+    if (!(Buffer.isBuffer(receiptBytes) || typeof receiptBytes === "string") || !(Buffer.isBuffer(planBytes) || typeof planBytes === "string") || typeof evidenceDir !== "string" || executionBinding === null) {
+      findings.push({ id: `production-run-${runIndex}`, reasonCode: "CONTROL_UNOBSERVED", message: "production evidence must contain receiptBytes, planBytes, and evidenceDir" });
+      continue;
     }
-  } else if (productionTrace !== null) {
-    observed = new Set(productionTrace);
+    let verified;
+    let receiptDoc;
+    try {
+      verified = verifyReceipt({ receiptBytes, planBytes, evidenceDir });
+      receiptDoc = validateDocument("promotion-receipt@1", receiptBytes);
+    } catch {
+      verified = { ok: false };
+      receiptDoc = { ok: false };
+    }
+    if (!verified.ok || !receiptDoc.ok) {
+      findings.push({ id: `production-run-${runIndex}`, reasonCode: "CONTROL_UNOBSERVED", message: "production receipt/plan/evidence did not verify offline" });
+      continue;
+    }
+    const receipt = receiptDoc.value;
+    const bindingValid =
+      digestOfBytes(receiptBytes) === executionBinding.receiptDigest &&
+      receipt.digests.compiledPlan === executionBinding.planDigest &&
+      receipt.candidate.id === executionBinding.candidateId &&
+      receipt.digests.evidenceIndex === executionBinding.evidenceIndexDigest &&
+      evidenceDir === executionBinding.evidenceDir;
+    if (!bindingValid) {
+      findings.push({ id: `production-run-${runIndex}`, reasonCode: "CONTROL_UNOBSERVED", message: "production evidence is not bound to the in-process evaluation that emitted it" });
+      continue;
+    }
+    const seenInRun = new Set();
+    let runValid = true;
+    for (const entry of receipt.controlTrace) {
+      const registered = registryById.get(entry.controlId);
+      const valid =
+        registered !== undefined &&
+        !seenInRun.has(entry.controlId) &&
+        entry.invocation === "evaluation" &&
+        entry.consumer === "promotion-receipt" &&
+        entry.dispositionEffect === registered.dispositionEffect &&
+        entry.planDigest === receipt.digests.compiledPlan &&
+        entry.candidateId === receipt.candidate.id &&
+        entry.evidenceIndexDigest === receipt.digests.evidenceIndex;
+      if (!valid) {
+        findings.push({ id: entry.controlId, reasonCode: "CONTROL_UNOBSERVED", message: `control ${entry.controlId} has an invalid, duplicate, or unbound production trace entry` });
+        runValid = false;
+      }
+      seenInRun.add(entry.controlId);
+    }
+    const dispositionEntries = receipt.controlTrace.filter((entry) => entry.controlId === "disposition-reduction");
+    if (dispositionEntries.length !== 1 || dispositionEntries[0].outcome !== receipt.disposition) {
+      findings.push({ id: "disposition-reduction", reasonCode: "CONTROL_UNOBSERVED", message: "a verified production run must have exactly one disposition-reduction entry matching the final disposition" });
+      runValid = false;
+    }
+    if (!runValid) continue;
+    for (const entry of receipt.controlTrace) observed.add(entry.controlId);
+    evidenceBindings.push({
+      planDigest: receipt.digests.compiledPlan,
+      candidateId: receipt.candidate.id,
+      disposition: receipt.disposition,
+      // The evidence-index digest is verified above but deliberately omitted
+      // from this conformance projection because result timestamps make the
+      // content-addressed evidence store run-variant. The trace projection is
+      // timing-free and therefore reproducible byte-for-byte.
+      controlTrace: receipt.controlTrace.map((entry) => ({
+        controlId: entry.controlId,
+        outcome: entry.outcome,
+        dispositionEffect: entry.dispositionEffect,
+        consumer: entry.consumer,
+        planDigest: entry.planDigest,
+        candidateId: entry.candidateId
+      }))
+    });
   }
 
   const productionObserved = [];
   for (const control of registry.controls) {
     if (control.productionObservable !== true) continue;
-    if (observed !== null && observed.has(control.id)) {
+    if (observed.has(control.id)) {
       productionObserved.push(control.id);
-    } else if (observed === null) {
-      findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but NO production control trace was supplied to the census (fail-closed)` });
     } else {
-      findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but was not observed in a genuine production control trace` });
+      findings.push({ id: control.id, reasonCode: "CONTROL_UNOBSERVED", message: `control ${control.id} is productionObservable but was not observed in a verified production run` });
     }
   }
 
@@ -152,7 +207,12 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, pr
     registered: [...registeredIds].sort(),
     proven: [...proven].sort(),
     productionObserved: productionObserved.sort(),
-    productionTraceProvided: observed !== null,
+    productionEvidenceProvided: productionRuns.length > 0,
+    productionEvidenceDigest: evidenceBindings.length > 0 ? digestOfCanonical(evidenceBindings.sort((a, b) => {
+      const left = digestOfCanonical(a);
+      const right = digestOfCanonical(b);
+      return left < right ? -1 : left > right ? 1 : 0;
+    })) : null,
     ledgerEvents: ledger.events().length,
     findings: findings.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   };

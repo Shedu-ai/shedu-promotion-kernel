@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { runConformance } from "../src/conformance.mjs";
 import { validateDocument } from "../src/contracts.mjs";
 import { verifyReceipt } from "../src/receipt.mjs";
 import { KERNEL_RELEASE } from "../src/compiler.mjs";
@@ -14,8 +14,18 @@ import { KERNEL_RELEASE } from "../src/compiler.mjs";
 // document is regenerable byte-for-byte, which is what entitles the probe to
 // report EXPERIMENTAL. The matrix is run once and shared across these tests.
 
-const OUT_DIR = mkdtempSync(join(tmpdir(), "shedu-conformance-run-"));
-const RUN = runConformance({ outDir: OUT_DIR });
+const BENCH_ARTIFACTS = mkdtempSync(join(tmpdir(), "shedu-conformance-run-"));
+const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
+const declaredArgv = subject.conformanceArgv;
+const cliRun = spawnSync(process.execPath, declaredArgv.slice(1), {
+  cwd: new URL("..", import.meta.url).pathname,
+  encoding: "buffer",
+  env: { PATH: process.env.PATH ?? "", BENCH_ARTIFACTS }
+});
+assert.equal(cliRun.status, 0, cliRun.stderr?.toString("utf8"));
+const OUT_DIR = join(BENCH_ARTIFACTS, "kernel-conformance");
+const statusBytesFromCli = readFileSync(join(OUT_DIR, "conformance-status.json"));
+const RUN = { status: JSON.parse(statusBytesFromCli), statusBytes: statusBytesFromCli };
 
 const EXPECTED_CASES = [
   "minimal-personal",

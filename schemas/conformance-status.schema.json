@@ -13,12 +13,14 @@
     "controlCensus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["complete", "registered", "proven", "productionObserved", "findings"],
+      "required": ["complete", "registered", "proven", "productionRequired", "productionObserved", "productionEvidenceDigest", "findings"],
       "properties": {
         "complete": {"type": "boolean"},
         "registered": {"type": "integer", "minimum": 0},
         "proven": {"type": "integer", "minimum": 0},
+        "productionRequired": {"type": "integer", "minimum": 1},
         "productionObserved": {"type": "integer", "minimum": 0},
+        "productionEvidenceDigest": {"$ref": "#/$defs/digest"},
         "findings": {
           "type": "array",
           "maxItems": 256,

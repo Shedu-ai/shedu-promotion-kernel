@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
-import { evaluateSupervised, publishedReceiptPath } from "./supervisor.mjs";
+import { beginSupervisedOperation, evaluateSupervised, publishedReceiptPath } from "./supervisor.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
 import { isAdmitted, committedAdmission } from "./admission.mjs";
+import { readBoundedRegularFile } from "./bounded-file.mjs";
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -169,6 +171,7 @@ function admissionOverridesFromFlags(flags) {
 }
 
 function runEvaluate(argv) {
+  const operationClock = beginSupervisedOperation();
   const usage = () =>
     emitError("CLI_USAGE", [
       { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>]" }
@@ -185,13 +188,7 @@ function runEvaluate(argv) {
   const contractPath = flags.get("--contract");
   let contractBytes;
   try {
-    const st = statSync(contractPath);
-    if (!st.isFile() || st.size > 4 * 1024 * 1024) {
-      return emitError("AUTHORITY_OBJECT_MISSING", [
-        { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `contract file ${contractPath} is not a bounded regular file` }
-      ]);
-    }
-    contractBytes = readFileSync(contractPath);
+    contractBytes = readBoundedRegularFile(contractPath, 4 * 1024 * 1024);
   } catch {
     return emitError("AUTHORITY_OBJECT_MISSING", [
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${contractPath}` }
@@ -221,7 +218,8 @@ function runEvaluate(argv) {
     outDir,
     maxRuntimeSeconds: contract.value.maxRuntimeSeconds,
     signKeyPath: flags.has("--sign-key") ? flags.get("--sign-key") : null,
-    workerEnv
+    workerEnv,
+    operationClock
   });
   if (supervised.timedOut) {
     return emitError("DEADLINE_EXCEEDED", [
@@ -282,10 +280,13 @@ function runConformanceCommand(argv) {
   const usage = () =>
     emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: "usage: conformance --out <dir>" }]);
   const flags = parseFlags(argv, ["--out"]);
-  if (!flags || !flags.has("--out")) return usage();
-  const { status, statusBytes } = runConformance({ outDir: flags.get("--out") });
+  if (!flags) return usage();
+  const outDir = flags.get("--out") ?? (
+    process.env.BENCH_ARTIFACTS ? join(process.env.BENCH_ARTIFACTS, "kernel-conformance") : null
+  );
+  if (outDir === null) return usage();
+  const { status, statusBytes } = runConformance({ outDir });
   process.stdout.write(statusBytes);
-  process.stdout.write("\n");
   return status.allPassed ? 0 : 2;
 }
 

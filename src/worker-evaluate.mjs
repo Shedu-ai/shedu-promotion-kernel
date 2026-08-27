@@ -1,10 +1,11 @@
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
 import { signReceipt } from "./receipt.mjs";
 import { committedAdmission, isAdmitted } from "./admission.mjs";
+import { readBoundedRegularFile } from "./bounded-file.mjs";
 
 // Worker process for the hard-deadline supervisor. It performs the COMPLETE
 // evaluation AND all promotion finalization (receipt signing, bundle
@@ -55,12 +56,14 @@ if (!outcome.ok) {
   // and refuses a non-regular file (e.g. a FIFO that could block).
   const keyPath = process.env.SHEDU_SIGN_KEY_FILE ?? null;
   if (keyPath) {
-    const st = statSync(keyPath);
-    if (!st.isFile() || st.size > 64 * 1024) {
+    let keyBytes;
+    try {
+      keyBytes = readBoundedRegularFile(keyPath, 64 * 1024);
+    } catch {
       writeFileSync(join(staging, "supervised-result.json"), Buffer.from(JSON.stringify({ ok: false, reasonCode: "SIGNATURE_INVALID" }), "utf8"));
       process.exit(0);
     }
-    const keyPem = readFileSync(keyPath, "utf8");
+    const keyPem = keyBytes.toString("utf8");
     const signed = signReceipt(outcome.receipt, keyPem);
     writeFileSync(join(staging, "receipt.json"), Buffer.from(canonicalize(signed), "utf8"));
   }

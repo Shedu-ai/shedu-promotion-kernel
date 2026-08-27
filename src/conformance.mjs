@@ -427,6 +427,7 @@ const KERNEL_ACTIVATION_MAP = {
 
 function runCase(definition, outDir) {
   const summaries = {};
+  const productionRuns = [];
   for (const kind of ["conforming", "planted"]) {
     const target = definition.build(kind);
     const candidate = definition[kind](target.repoDir);
@@ -452,13 +453,28 @@ function runCase(definition, outDir) {
       evaluationDigest: outcome.evaluationDigest,
       receiptVerified: verification.ok
     };
+    // A fixture that intentionally mutates its evidence store proves the
+    // negative integrity path; it is not eligible to provide positive
+    // production-observation credit to the control census.
+    if (withEvidence) {
+      productionRuns.push({
+        outcome,
+        receiptBytes: readFileSync(join(runOut, "receipt.json")),
+        planBytes: readFileSync(join(runOut, "plan.json")),
+        evidenceDir: join(runOut, "artifacts", "evidence")
+      });
+    }
   }
-  return { caseId: definition.caseId, conforming: summaries.conforming, planted: summaries.planted };
+  return {
+    summary: { caseId: definition.caseId, conforming: summaries.conforming, planted: summaries.planted },
+    productionRuns
+  };
 }
 
 export function runConformance({ outDir }) {
   mkdirSync(outDir, { recursive: true });
-  const cases = CASES.map((definition) => runCase(definition, outDir));
+  const executedCases = CASES.map((definition) => runCase(definition, outDir));
+  const cases = executedCases.map((executed) => executed.summary);
 
   // Kernel activation proof: every registered kernel mechanism must map to a
   // case whose receipt pair mechanically proves OBSERVED / FIRED-changes-
@@ -490,22 +506,19 @@ export function runConformance({ outDir }) {
   // productionObservable control, each trace bound to its receipt's run
   // identity and disposition. An incomplete census fails the matrix.
   const controlRegistry = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url), "utf8"));
-  const productionReceipts = [];
-  for (const c of cases) {
-    for (const kind of ["conforming", "planted"]) {
-      productionReceipts.push(JSON.parse(readFileSync(join(outDir, c.caseId, kind, "receipt.json"), "utf8")));
-    }
-  }
+  const productionRuns = executedCases.flatMap((executed) => executed.productionRuns);
   const census = runControlCensus({
     srcDir: new URL("../src", import.meta.url).pathname,
     registry: controlRegistry,
-    productionReceipts
+    productionRuns
   });
   const controlCensus = {
     complete: census.complete,
     registered: census.registered.length,
     proven: census.proven.length,
+    productionRequired: controlRegistry.controls.filter((control) => control.productionObservable === true).length,
     productionObserved: census.productionObserved.length,
+    productionEvidenceDigest: census.productionEvidenceDigest,
     findings: census.findings.map((f) => ({ id: f.id, reasonCode: f.reasonCode }))
   };
 
@@ -528,7 +541,7 @@ export function runConformance({ outDir }) {
   };
   const validated = validateValue("conformance-status@1", status);
   if (!validated.ok) throw new Error(`invalid conformance status: ${JSON.stringify(validated.errors)}`);
-  const statusBytes = Buffer.from(canonicalize(status), "utf8");
+  const statusBytes = Buffer.from(`${canonicalize(status)}\n`, "utf8");
   writeFileSync(join(outDir, "conformance-status.json"), statusBytes);
   return { status, statusBytes };
 }

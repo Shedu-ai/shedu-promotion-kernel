@@ -36,6 +36,12 @@ test("the git authority resolves an absolute executable and ignores a poisoned P
     // The authority binds an absolute path + digest, never the fake on PATH.
     const id = gitAuthorityIdentity();
     assert.ok(id.path.startsWith("/") && !id.path.includes("shedu-fakegit"), id.path);
+    assert.match(id.helperManifestDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.match(id.authorityDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(id.execPath.startsWith("/"));
+    if (process.platform === "darwin") {
+      assert.notEqual(id.path, "/usr/bin/git", "the macOS dispatcher is not the bound Git executable");
+    }
 
     // verifyFrozenSource returns the REAL commit and clean state, not the
     // fake's invented "deadbeef" commit.

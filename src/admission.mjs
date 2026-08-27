@@ -1,9 +1,10 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
 import { KERNEL_RELEASE } from "./compiler.mjs";
 import { git } from "./git-authority.mjs";
+import { readBoundedRegularFile } from "./bounded-file.mjs";
 
 // Control point: conformance/status admission — the FOUNDATION_ONLY →
 // EXPERIMENTAL gate, and the gate on the promotion (evaluate) entrypoint.
@@ -52,7 +53,15 @@ export function deriveConformancePassed(status) {
   if (!casesOk) reasons.push("a conformance case did not pass on recomputation");
   const activationOk = status.kernelActivation.length > 0 && status.kernelActivation.every((a) => a.proven === true);
   if (!activationOk) reasons.push("a kernel mechanism activation was not proven on recomputation");
-  const censusOk = status.controlCensus?.complete === true && (status.controlCensus?.findings?.length ?? 1) === 0;
+  const census = status.controlCensus;
+  const censusOk =
+    census?.complete === true &&
+    census.registered > 0 &&
+    census.proven === census.registered &&
+    census.productionRequired > 0 &&
+    census.productionObserved === census.productionRequired &&
+    typeof census.productionEvidenceDigest === "string" &&
+    (census.findings?.length ?? 1) === 0;
   if (!censusOk) reasons.push("the control-surface census was not complete on recomputation");
   const derived = casesOk && activationOk && censusOk;
   if (status.allPassed !== derived) {
@@ -188,10 +197,7 @@ export function committedAdmission(overrides = {}) {
   let attestationBytes = null;
   if (attestationPath) {
     try {
-      const st = statSync(attestationPath);
-      if (st.isFile() && st.size <= 64 * 1024) {
-        attestationBytes = readFileSync(attestationPath);
-      }
+      attestationBytes = readBoundedRegularFile(attestationPath, 64 * 1024);
     } catch {
       attestationBytes = null;
     }

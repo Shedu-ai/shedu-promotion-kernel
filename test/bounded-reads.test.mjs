@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -72,4 +72,21 @@ test("a bounded regular contract is accepted (the bound does not reject legitima
   );
   assert.equal(run.status, 2);
   assert.equal(JSON.parse(run.stderr).reasonCode, "NOT_ADMITTED");
+});
+
+test("a final-path symlink is refused instead of creating a stat/read substitution surface", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shedu-link-read-"));
+  const target = join(dir, "target.json");
+  const link = join(dir, "contract.json");
+  writeFileSync(target, "{}\n");
+  symlinkSync(target, link);
+  const kernelRoot = new URL("..", import.meta.url).pathname;
+  const out = mkdtempSync(join(tmpdir(), "shedu-out-"));
+  const run = spawnSync(
+    process.execPath,
+    [join(kernelRoot, "src", "cli.mjs"), "evaluate", "--contract", link, "--repo", dir, "--out", out],
+    { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 10000 }
+  );
+  assert.equal(run.status, 2);
+  assert.equal(JSON.parse(run.stderr).reasonCode, "AUTHORITY_OBJECT_MISSING");
 });

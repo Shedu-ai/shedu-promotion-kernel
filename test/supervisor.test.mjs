@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, writeFileSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
 import { generateKeyPairSync, sign as cryptoSign, createPublicKey } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -25,6 +25,7 @@ const outDir = () => mkdtempSync(join(tmpdir(), "shedu-supervisor-"));
 // copy so its worker resolves admission against the clean tree.
 let SUP;         // evaluateSupervised imported from the committed copy
 let ADMIT_ENV;   // worker env carrying the external admission material
+let SUP_PATH;
 
 before(async () => {
   const copy = realpathSync(mkdtempSync(join(tmpdir(), "shedu-kernelcopy-")));
@@ -58,7 +59,8 @@ before(async () => {
   writeFileSync(attPath, Buffer.from(canonicalize({ ...body, signing: { algorithm: "ed25519", publicKey: publicKeyHex, signature } }), "utf8"));
 
   ADMIT_ENV = { SHEDU_ATTESTATION_FILE: attPath, SHEDU_PINNED_KEY: publicKeyHex, SHEDU_EXPECTED_COMMIT: head };
-  ({ evaluateSupervised: SUP } = await import(pathToFileURL(join(copy, "src", "supervisor.mjs")).href));
+  SUP_PATH = join(copy, "src", "supervisor.mjs");
+  ({ evaluateSupervised: SUP } = await import(pathToFileURL(SUP_PATH).href));
 });
 
 function target() {
@@ -137,6 +139,55 @@ test("signing happens inside the supervised boundary", () => {
     expectedPublicKey: receipt.signing.publicKey
   });
   assert.equal(verification.ok, true, JSON.stringify(verification.errors));
+});
+
+test("two live publishers cannot corrupt one output directory", async () => {
+  const first = target();
+  const second = target();
+  const dir = outDir();
+  const contractPath = join(mkdtempSync(join(tmpdir(), "shedu-contract-")), "contract.json");
+  writeFileSync(contractPath, first.contractBytes);
+  const childSource = `
+    import { readFileSync } from "node:fs";
+    import { pathToFileURL } from "node:url";
+    const [modulePath, repoDir, contractPath, outDir] = process.argv.slice(1);
+    const { evaluateSupervised } = await import(pathToFileURL(modulePath).href);
+    const workerEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("SHEDU_")));
+    const result = evaluateSupervised({ repoDir, contractBytes: readFileSync(contractPath), outDir, maxRuntimeSeconds: 600, workerEnv });
+    process.stdout.write(JSON.stringify(result));
+  `;
+  const firstChild = spawn(process.execPath, ["--input-type=module", "-e", childSource, SUP_PATH, first.repoDir, contractPath, dir], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, ...ADMIT_ENV, SHEDU_TEST_STALL_MS: "1800" }
+  });
+  let childStdout = "";
+  let childStderr = "";
+  firstChild.stdout.on("data", (chunk) => { childStdout += chunk; });
+  firstChild.stderr.on("data", (chunk) => { childStderr += chunk; });
+
+  const lockPath = join(dir, ".promotion-lock");
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    try {
+      lstatSync(lockPath);
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  assert.doesNotThrow(() => lstatSync(lockPath), "the first publisher never acquired its lock");
+
+  const competing = SUP({ repoDir: second.repoDir, contractBytes: second.contractBytes, outDir: dir, maxRuntimeSeconds: 600, workerEnv: ADMIT_ENV });
+  assert.equal(competing.ok, false);
+  assert.equal(competing.reasonCode, "OUTPUT_BUSY");
+
+  const exitCode = await new Promise((resolve) => firstChild.on("close", resolve));
+  assert.equal(exitCode, 0, childStderr);
+  const winner = JSON.parse(childStdout);
+  assert.equal(winner.ok, true, JSON.stringify(winner));
+  assert.ok(existsSync(published(dir)));
+  assert.equal(readdirSync(dir).filter((name) => name.startsWith(".v-")).length, 1);
+  assert.equal(existsSync(lockPath), false);
 });
 
 test("preseeding a PROMOTABLE bundle then running an invalid evaluation leaves no promotable receipt", () => {

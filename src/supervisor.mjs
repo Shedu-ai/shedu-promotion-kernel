@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
@@ -10,9 +11,79 @@ import { digestOfBytes } from "./canonical-json.mjs";
 export const CONTROL_POINTS = Object.freeze(["evaluation-supervisor"]);
 
 const WORKER = new URL("./worker-evaluate.mjs", import.meta.url).pathname;
+const OPERATION_CLOCKS = new WeakMap();
+
+// Start the whole-operation clock before CLI prework without exposing a
+// caller-settable timestamp. Only a module-branded token can carry an earlier
+// start into evaluateSupervised; invented objects start at the call boundary.
+export function beginSupervisedOperation() {
+  const token = Object.freeze({});
+  OPERATION_CLOCKS.set(token, performance.now());
+  return token;
+}
 
 function randomToken() {
-  return `${process.pid}-${Math.floor(performance.now() * 1000)}-${Math.floor(Math.random() * 1e9)}`;
+  return `${process.pid}-${randomBytes(16).toString("hex")}`;
+}
+
+function processIsAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+// Same-output publication is serialized with an atomic symlink lock. A
+// second live publisher fails deterministically; it never deletes another
+// run's staging directory or current pointer. A lock whose owning process is
+// demonstrably gone is mechanically reclaimed, so a crashed supervisor does
+// not leave a permanent operational orphan. The owner is encoded in the
+// symlink payload, so there is no mkdir/write crash window that can create an
+// ownerless lock.
+function acquireOutputLock(outDir, token) {
+  const lockPath = join(outDir, ".promotion-lock");
+  const ownerValue = `${process.pid}:${token}`;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      symlinkSync(ownerValue, lockPath);
+      return {
+        acquired: true,
+        release() {
+          try {
+            const observed = readlinkSync(lockPath);
+            if (observed !== ownerValue) throw new Error("promotion output lock ownership changed before release");
+            unlinkSync(lockPath);
+          } catch (error) {
+            if (error?.code === "ENOENT") return;
+            // Never silently report success while leaving an operational lock
+            // orphan or deleting another publisher's lock.
+            throw error;
+          }
+        }
+      };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      let ownerPid = null;
+      try {
+        const match = /^(\d+):/.exec(readlinkSync(lockPath));
+        if (match) ownerPid = Number(match[1]);
+      } catch {
+        return { acquired: false, reasonCode: "OUTPUT_BUSY" };
+      }
+      if (ownerPid === null || processIsAlive(ownerPid)) return { acquired: false, reasonCode: "OUTPUT_BUSY" };
+      const stale = join(outDir, `.stale-lock-${token}`);
+      try {
+        renameSync(lockPath, stale);
+        unlinkSync(stale);
+      } catch {
+        return { acquired: false, reasonCode: "OUTPUT_BUSY" };
+      }
+    }
+  }
+  return { acquired: false, reasonCode: "OUTPUT_BUSY" };
 }
 
 // Remove stale version dirs and any prior current bundle from the output
@@ -40,83 +111,109 @@ function purgeVersions(outDir) {
 // enforced by the worker unconditionally (no caller flag). On timeout, worker
 // failure, malformed summary, failed evaluation/admission, or signing failure,
 // nothing is published and no `current` bundle remains.
-export function evaluateSupervised({ repoDir, contractBytes, outDir, maxRuntimeSeconds, signKeyPath = null, workerEnv = {} }) {
-  mkdirSync(outDir, { recursive: true });
-  purgeVersions(outDir);
-
-  const token = randomToken();
-  const versionDir = join(outDir, `.v-${token}`);
-  mkdirSync(versionDir, { recursive: true });
-  const contractPath = join(versionDir, "work-contract.json");
-  writeFileSync(contractPath, contractBytes);
-
-  const env = { ...process.env, ...workerEnv };
-  if (signKeyPath) env.SHEDU_SIGN_KEY_FILE = signKeyPath;
-
+export function evaluateSupervised({ repoDir, contractBytes, outDir, maxRuntimeSeconds, signKeyPath = null, workerEnv = {}, operationClock = null }) {
   const hardMs = maxRuntimeSeconds * 1000;
-  const started = performance.now();
-  const run = spawnSync(process.execPath, [WORKER, repoDir, contractPath, versionDir], {
-    encoding: "utf8",
-    timeout: hardMs,
-    killSignal: "SIGKILL",
-    env,
-    windowsHide: true
-  });
-  const elapsedMs = Math.round(performance.now() - started);
+  const started = OPERATION_CLOCKS.get(operationClock) ?? performance.now();
+  if (operationClock !== null && typeof operationClock === "object") OPERATION_CLOCKS.delete(operationClock);
+  const elapsed = () => Math.round(performance.now() - started);
+  mkdirSync(outDir, { recursive: true });
+  const token = randomToken();
+  const lock = acquireOutputLock(outDir, token);
+  if (!lock.acquired) {
+    return { ok: false, supervised: true, reasonCode: lock.reasonCode, message: "another promotion is publishing to this output directory", elapsedMs: elapsed() };
+  }
 
-  const abort = (outcome) => {
-    rmSync(versionDir, { recursive: true, force: true });
+  try {
     purgeVersions(outDir);
-    return outcome;
-  };
+    const versionDir = join(outDir, `.v-${token}`);
+    mkdirSync(versionDir, { recursive: true });
+    const contractPath = join(versionDir, "work-contract.json");
+    writeFileSync(contractPath, contractBytes);
 
-  const timedOut = run.error?.code === "ETIMEDOUT" || (run.signal === "SIGKILL" && elapsedMs >= hardMs - 50);
-  if (timedOut) {
-    return abort({ ok: true, supervised: true, timedOut: true, disposition: "BLOCKED", reasonCodes: ["DEADLINE_EXCEEDED"], elapsedMs });
-  }
+    const abort = (outcome) => {
+      rmSync(versionDir, { recursive: true, force: true });
+      purgeVersions(outDir);
+      return outcome;
+    };
 
-  const summaryPath = join(versionDir, "supervised-result.json");
-  if (run.status !== 0 || !existsSync(summaryPath)) {
-    return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: run.stderr?.slice(0, 500) ?? "worker did not complete", elapsedMs });
-  }
-
-  let summary;
-  try {
-    summary = JSON.parse(readFileSync(summaryPath, "utf8"));
-  } catch {
-    return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "malformed supervised summary", elapsedMs });
-  }
-  if (summary.ok !== true) {
-    return abort({ ok: false, supervised: true, reasonCode: summary.reasonCode ?? "INFRASTRUCTURE_FAILURE", reasons: summary.reasons, elapsedMs });
-  }
-
-  // Verify the bundle is internally consistent before publishing.
-  for (const [rel, digest] of Object.entries(summary.bundle ?? {})) {
-    const p = join(versionDir, rel);
-    if (!existsSync(p) || digestOfBytes(readFileSync(p)) !== digest) {
-      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: `version bundle member ${rel} is missing or inconsistent`, elapsedMs });
+    const beforeWorkerMs = elapsed();
+    if (beforeWorkerMs >= hardMs) {
+      return abort({ ok: true, supervised: true, timedOut: true, disposition: "BLOCKED", reasonCodes: ["DEADLINE_EXCEEDED"], elapsedMs: beforeWorkerMs });
     }
-  }
 
-  // ATOMIC publication: flip the `current` symlink onto the completed version
-  // via a single rename (atomic on POSIX). No partial or cross-run bundle can
-  // be observed under `current`.
-  const pending = join(outDir, `.current-${token}`);
-  try {
-    symlinkSync(`.v-${token}`, pending);
-    renameSync(pending, join(outDir, "current"));
-  } catch (error) {
-    rmSync(pending, { force: true });
-    return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: `atomic publish failed: ${String(error)}`, elapsedMs });
-  }
-  // Best-effort cleanup of superseded versions (never the just-published one).
-  for (const name of readdirSync(outDir)) {
-    if (name.startsWith(".v-") && name !== `.v-${token}`) {
-      rmSync(join(outDir, name), { recursive: true, force: true });
+    // Construct the worker environment; never inherit unrelated ambient
+    // credentials or test controls implicitly.
+    const env = { PATH: process.env.PATH ?? "", ...workerEnv };
+    if (signKeyPath) env.SHEDU_SIGN_KEY_FILE = signKeyPath;
+
+    const run = spawnSync(process.execPath, [WORKER, repoDir, contractPath, versionDir], {
+      encoding: "utf8",
+      timeout: Math.max(1, hardMs - beforeWorkerMs),
+      killSignal: "SIGKILL",
+      env,
+      windowsHide: true
+    });
+    const elapsedMs = elapsed();
+
+    const timedOut = run.error?.code === "ETIMEDOUT" || (run.signal === "SIGKILL" && elapsedMs >= hardMs - 50);
+    if (timedOut) {
+      return abort({ ok: true, supervised: true, timedOut: true, disposition: "BLOCKED", reasonCodes: ["DEADLINE_EXCEEDED"], elapsedMs });
     }
-  }
 
-  return { ...summary, supervised: true, timedOut: false, elapsedMs, outDir, currentDir: join(outDir, "current") };
+    const summaryPath = join(versionDir, "supervised-result.json");
+    if (run.status !== 0 || !existsSync(summaryPath)) {
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: run.stderr?.slice(0, 500) ?? "worker did not complete", elapsedMs });
+    }
+
+    let summary;
+    try {
+      summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+    } catch {
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "malformed supervised summary", elapsedMs });
+    }
+    if (summary.ok !== true) {
+      return abort({ ok: false, supervised: true, reasonCode: summary.reasonCode ?? "INFRASTRUCTURE_FAILURE", reasons: summary.reasons, elapsedMs });
+    }
+
+    // Verify the exact required bundle before publishing; a worker cannot make
+    // an empty or partial manifest authoritative.
+    const requiredBundle = ["receipt.json", "plan.json", join("artifacts", "evidence", "index.json")];
+    if (
+      summary.bundle === null ||
+      typeof summary.bundle !== "object" ||
+      Object.keys(summary.bundle).sort().join("\0") !== [...requiredBundle].sort().join("\0")
+    ) {
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "worker returned an incomplete or unexpected bundle manifest", elapsedMs });
+    }
+    for (const [rel, digest] of Object.entries(summary.bundle)) {
+      const p = join(versionDir, rel);
+      if (!existsSync(p) || digestOfBytes(readFileSync(p)) !== digest) {
+        return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: `version bundle member ${rel} is missing or inconsistent`, elapsedMs });
+      }
+    }
+    if (elapsed() >= hardMs) {
+      return abort({ ok: true, supervised: true, timedOut: true, disposition: "BLOCKED", reasonCodes: ["DEADLINE_EXCEEDED"], elapsedMs: elapsed() });
+    }
+
+    // ATOMIC publication: flip the `current` symlink onto the completed version
+    // via a single rename (atomic on POSIX). The output lock prevents another
+    // publisher from deleting or replacing this run while it finalizes.
+    const pending = join(outDir, `.current-${token}`);
+    try {
+      symlinkSync(`.v-${token}`, pending);
+      renameSync(pending, join(outDir, "current"));
+    } catch (error) {
+      rmSync(pending, { force: true });
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: `atomic publish failed: ${String(error)}`, elapsedMs: elapsed() });
+    }
+    if (elapsed() >= hardMs) {
+      return abort({ ok: true, supervised: true, timedOut: true, disposition: "BLOCKED", reasonCodes: ["DEADLINE_EXCEEDED"], elapsedMs: elapsed() });
+    }
+
+    return { ...summary, supervised: true, timedOut: false, elapsedMs: elapsed(), outDir, currentDir: join(outDir, "current") };
+  } finally {
+    lock.release();
+  }
 }
 
 // The published receipt path for a supervised output directory.
