@@ -68,6 +68,12 @@
       "dispositionEffect": true
     },
     {
+      "id": "git-authority",
+      "kind": "verification",
+      "definedIn": "src/git-authority.mjs",
+      "dispositionEffect": true
+    },
+    {
       "id": "phase-scheduled-execution",
       "kind": "scheduling",
       "definedIn": "src/validators/validation-plan.mjs",

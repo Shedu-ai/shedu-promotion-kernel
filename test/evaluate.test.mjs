@@ -157,7 +157,7 @@ test("a blocking target-command pack check gates the disposition", () => {
         checkId: "gate-check",
         phase: "CANDIDATE_VALIDATION",
         effect: "BLOCKING",
-        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(3)"] },
+        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(3)"], inputManifest: [] },
         inputs: [],
         outputSchemaId: "check-result@1",
         timeoutSeconds: 60,

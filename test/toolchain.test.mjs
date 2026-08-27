@@ -61,7 +61,7 @@ test("a mutable external target validator is rejected at compilation", async () 
   const { makeContract, makeProfile, makePack, makeCheck, pinPacks, profileEntries } = await import("./fixtures.mjs");
   const rogue = makePack({
     packId: "rogue-pack",
-    checks: [makeCheck({ checkId: "rogue", validator: { kind: "TARGET_COMMAND", argv: ["/tmp/mutable-validator"] } })]
+    checks: [makeCheck({ checkId: "rogue", validator: { kind: "TARGET_COMMAND", argv: ["/tmp/mutable-validator"], inputManifest: [] } })]
   });
   const packs = pinPacks([rogue]);
   const profile = makeProfile(profileEntries(packs));
@@ -72,26 +72,35 @@ test("a mutable external target validator is rejected at compilation", async () 
   assert.ok(result.errors.some((e) => e.reasonCode === "UNKNOWN_VALIDATOR"));
 });
 
-test("validator identity changes with base-script bytes and with the executable", () => {
+test("validator identity changes when a declared helper (transitive input) changes", () => {
+  // tools/check.cjs requires tools/helper.cjs; BOTH are declared in the input
+  // manifest. Changing ONLY helper.cjs must change the validator identity.
   const repo = makeGitRepo();
-  writeRepoFile(repo, "tools/check.cjs", "console.log('version-one');\n");
+  writeRepoFile(repo, "tools/check.cjs", "require('./helper.cjs');\n");
+  writeRepoFile(repo, "tools/helper.cjs", "module.exports = { v: 'one' };\n");
   const base1 = commitAll(repo, "base v1");
-  const argv = ["node", "tools/check.cjs"];
-  const id1 = targetValidatorDigest(repo, base1, argv);
+  const validator = { kind: "TARGET_COMMAND", argv: ["node", "tools/check.cjs"], inputManifest: ["tools/check.cjs", "tools/helper.cjs"] };
+  const id1 = targetValidatorDigest(repo, base1, validator);
 
-  // Same argv, changed base-script bytes → different validator identity.
-  writeRepoFile(repo, "tools/check.cjs", "console.log('version-two-unrelated');\n");
-  const base2 = commitAll(repo, "base v2");
-  const id2 = targetValidatorDigest(repo, base2, argv);
-  assert.notEqual(id1, id2, "changed base-script bytes must change validator identity");
+  writeRepoFile(repo, "tools/helper.cjs", "module.exports = { v: 'two-unrelated' };\n");
+  const base2 = commitAll(repo, "base v2 (only helper changed)");
+  const id2 = targetValidatorDigest(repo, base2, validator);
+  assert.notEqual(id1, id2, "changed helper bytes must change validator identity");
 
-  // Same argv + same base, but a different executable (toolchain) → different.
+  // A different executable (toolchain) → different identity.
   const dir = mkdtempSync(join(tmpdir(), "shedu-exe2-"));
   const fake = join(dir, "node");
   writeFileSync(fake, "#!/bin/sh\nexit 0\n");
   chmodSync(fake, 0o755);
-  const idOtherExec = targetValidatorDigest(repo, base2, ["node", "tools/check.cjs"], { toolchain: fileToolchain(fake) });
+  const idOtherExec = targetValidatorDigest(repo, base2, validator, { toolchain: fileToolchain(fake) });
   assert.notEqual(id2, idOtherExec, "a different executable must change validator identity");
+
+  // An undeclared base input (helper omitted from the manifest) has no
+  // admissible identity binding — the runtime sandbox would deny it — and the
+  // digest is computed only over declared inputs.
+  const declaredOnlyCheck = { kind: "TARGET_COMMAND", argv: ["node", "tools/check.cjs"], inputManifest: ["tools/check.cjs"] };
+  const idDeclaredOnly = targetValidatorDigest(repo, base2, declaredOnlyCheck);
+  assert.notEqual(idDeclaredOnly, id2, "the manifest set is part of the identity");
 });
 
 // ---- Finding 7: source is valid UTF-8 text, never binary -------------------

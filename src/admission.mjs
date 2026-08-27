@@ -1,8 +1,8 @@
-import { spawnSync } from "node:child_process";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
 import { KERNEL_RELEASE } from "./compiler.mjs";
+import { git } from "./git-authority.mjs";
 
 // Control point: conformance/status admission — the FOUNDATION_ONLY →
 // EXPERIMENTAL gate, and the gate on the promotion (evaluate) entrypoint.
@@ -22,11 +22,11 @@ export const TRUSTED_ATTESTATION_KEYS = Object.freeze([]);
 // authority remains Bench re-materializing the frozen commit externally; this
 // is the strongest check the subject can perform on itself.)
 export function verifyFrozenSource(repoDir, expectedCommit) {
-  const git = (args) => spawnSync("git", ["-C", repoDir, ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });
-  const head = git(["rev-parse", "HEAD"]);
+  const run = (args) => git(args, { cwd: repoDir });
+  const head = run(["rev-parse", "HEAD"]);
   if (head.status !== 0) return { ok: false, clean: false, commit: null, reason: "not a git repository" };
   const commit = head.stdout.trim();
-  const status = git(["status", "--porcelain", "--untracked-files=all"]);
+  const status = run(["status", "--porcelain", "--untracked-files=all"]);
   if (status.status !== 0) return { ok: false, clean: false, commit, reason: "cannot read working-tree status" };
   const clean = status.stdout.trim() === "";
   if (!clean) return { ok: false, clean: false, commit, reason: "working tree is dirty; an attestation for a clean commit cannot admit modified source" };

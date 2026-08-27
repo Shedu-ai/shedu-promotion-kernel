@@ -57,6 +57,7 @@ export function runTargetCommand({
   maxOutputBytes,
   maxProcesses,
   readRoots = [],
+  readFiles = [],
   toolchain = kernelToolchain()
 }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) {
@@ -94,12 +95,14 @@ export function runTargetCommand({
 
   const realCwd = realpathSync(cwd);
   const realReadRoots = readRoots.map((r) => realpathSync(r));
+  const realReadFiles = readFiles.map((f) => realpathSync(f));
 
   const isolated = isolateExecution({
     executablePath: resolved.path,
     argvTail: argv.slice(1),
     maxProcesses,
     readRoots: realReadRoots,
+    readFiles: realReadFiles,
     cwd: realCwd
   });
   const env = buildCleanEnvironment({ envAllowlist, injectEnv });

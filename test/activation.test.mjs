@@ -27,7 +27,7 @@ function gateGate(variant = "") {
         checkId: "gate-check",
         phase: "CANDIDATE_VALIDATION",
         effect: "BLOCKING",
-        validator: { kind: "TARGET_COMMAND", argv },
+        validator: { kind: "TARGET_COMMAND", argv, inputManifest: [] },
         inputs: [],
         outputSchemaId: "check-result@1",
         timeoutSeconds: 60,

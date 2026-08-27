@@ -203,6 +203,7 @@ const SEMANTIC = {
       }
       if (check.validator.kind === "TARGET_COMMAND") {
         errors.push(...argvSecretErrors(check.validator.argv, `checks[${check.checkId}].validator.argv`));
+        errors.push(...pathErrors(check.validator.inputManifest, `checks[${check.checkId}].validator.inputManifest`));
       }
       errors.push(...envAllowlistSecretErrors(check.envAllowlist, `checks[${check.checkId}].envAllowlist`));
     }

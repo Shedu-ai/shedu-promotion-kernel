@@ -347,8 +347,8 @@ test("census tuples derive mechanically from registry and compiled plan", () => 
 
   // Target commands get digest-qualified validator identity: two different
   // argv arrays can never alias one registered validator.
-  const argvCheckA = makeCheck({ checkId: "cmd-a", validator: { kind: "TARGET_COMMAND", argv: ["node", "a.mjs"] } });
-  const argvCheckB = makeCheck({ checkId: "cmd-b", validator: { kind: "TARGET_COMMAND", argv: ["node", "b.mjs"] } });
+  const argvCheckA = makeCheck({ checkId: "cmd-a", validator: { kind: "TARGET_COMMAND", argv: ["node", "a.mjs"], inputManifest: [] } });
+  const argvCheckB = makeCheck({ checkId: "cmd-b", validator: { kind: "TARGET_COMMAND", argv: ["node", "b.mjs"], inputManifest: [] } });
   assert.notEqual(planCheckValidatorId(argvCheckA), planCheckValidatorId(argvCheckB));
   assert.match(planCheckValidatorId(argvCheckA), /^target:sha256:[0-9a-f]{64}$/);
 });

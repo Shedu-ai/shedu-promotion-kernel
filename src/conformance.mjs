@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { git as gitAuthority } from "./git-authority.mjs";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,24 +20,17 @@ import { verifyActivationPair } from "./activation.mjs";
 // changed the disposition, and the conforming receipt shows it OBSERVED.
 // A kernel mechanism without a proven activation case fails the matrix.
 
-const GIT_ENV = Object.freeze({
+const GIT_IDENTITY = Object.freeze({
   GIT_AUTHOR_NAME: "kernel-conformance",
   GIT_AUTHOR_EMAIL: "conformance@invalid",
   GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
   GIT_COMMITTER_NAME: "kernel-conformance",
   GIT_COMMITTER_EMAIL: "conformance@invalid",
-  GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null"
+  GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z"
 });
 
 function git(args, cwd) {
-  const r = spawnSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    windowsHide: true,
-    env: { PATH: process.env.PATH, ...GIT_ENV }
-  });
+  const r = gitAuthority(cwd === undefined ? args : ["-C", cwd, ...args], { extraEnv: GIT_IDENTITY });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
   return r.stdout.trim();
 }
@@ -78,7 +71,7 @@ const ADVISORY_PACK = {
       checkId: "team-check",
       phase: "CANDIDATE_VALIDATION",
       effect: "ADVISORY",
-      validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"] },
+      validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"], inputManifest: [] },
       inputs: [],
       outputSchemaId: "check-result@1",
       timeoutSeconds: 60,
@@ -90,11 +83,11 @@ const ADVISORY_PACK = {
   ]
 };
 
-const targetCommandCheck = (checkId, argv) => ({
+const targetCommandCheck = (checkId, argv, inputManifest = []) => ({
   checkId,
   phase: "CANDIDATE_VALIDATION",
   effect: "BLOCKING",
-  validator: { kind: "TARGET_COMMAND", argv },
+  validator: { kind: "TARGET_COMMAND", argv, inputManifest },
   inputs: [],
   outputSchemaId: "check-result@1",
   timeoutSeconds: 120,
@@ -296,7 +289,7 @@ const CASES = [
             description: "target architecture validators from trusted base",
             phases: ["CANDIDATE_VALIDATION"],
             dependencies: [],
-            checks: [targetCommandCheck("architecture-check", ["node", "tools/check-architecture.cjs"])]
+            checks: [targetCommandCheck("architecture-check", ["node", "tools/check-architecture.cjs"], ["tools/check-architecture.cjs"])]
           },
           {
             schemaVersion: "policy-pack@1",
@@ -305,7 +298,7 @@ const CASES = [
             description: "target test suite through exact argv and machine reports",
             phases: ["CANDIDATE_VALIDATION"],
             dependencies: [],
-            checks: [targetCommandCheck("target-tests", ["node", "tools/run-tests.cjs"])]
+            checks: [targetCommandCheck("target-tests", ["node", "tools/run-tests.cjs"], ["tools/run-tests.cjs"])]
           }
         ],
         extraBaseFiles: {

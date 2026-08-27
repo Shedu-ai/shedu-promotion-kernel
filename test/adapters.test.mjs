@@ -150,7 +150,7 @@ function gatePack() {
         checkId: "gate-check",
         phase: "CANDIDATE_VALIDATION",
         effect: "BLOCKING",
-        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"] },
+        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"], inputManifest: [] },
         inputs: [],
         outputSchemaId: "check-result@1",
         timeoutSeconds: 60,
@@ -285,7 +285,7 @@ test("verified activation-pair evidence entitles INTEGRATED status; a forged pai
             "node",
             "-e",
             'process.exit(require("node:fs").existsSync(require("node:path").join(process.env.KERNEL_CANDIDATE_DIR,"src","gate.marker"))?1:0)'
-          ]
+          ], inputManifest: []
         }
       }
     ]
@@ -385,7 +385,7 @@ import(pathToFileURL(join(process.env.KERNEL_CANDIDATE_DIR, "src", "app.mjs")).h
 `;
 
 function strictPacks() {
-  const check = (packId, checkId, argv) => ({
+  const check = (packId, checkId, argv, inputManifest) => ({
     schemaVersion: "policy-pack@1",
     packId,
     version: "1.0.0",
@@ -397,7 +397,7 @@ function strictPacks() {
         checkId,
         phase: "CANDIDATE_VALIDATION",
         effect: "BLOCKING",
-        validator: { kind: "TARGET_COMMAND", argv },
+        validator: { kind: "TARGET_COMMAND", argv, inputManifest },
         inputs: [],
         outputSchemaId: "check-result@1",
         timeoutSeconds: 120,
@@ -409,8 +409,8 @@ function strictPacks() {
     ]
   });
   return [
-    check("architecture-boundaries", "architecture-check", ["node", "tools/check-architecture.cjs"]),
-    check("target-test-suite", "target-tests", ["node", "tools/run-tests.cjs"])
+    check("architecture-boundaries", "architecture-check", ["node", "tools/check-architecture.cjs"], ["tools/check-architecture.cjs"]),
+    check("target-test-suite", "target-tests", ["node", "tools/run-tests.cjs"], ["tools/run-tests.cjs"])
   ];
 }
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateDocument } from "./contracts.mjs";
@@ -12,6 +11,7 @@ import { signReceipt, verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { computeAdmission, isAdmitted, verifyFrozenSource } from "./admission.mjs";
+import { git as gitAuthority } from "./git-authority.mjs";
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -70,10 +70,7 @@ function readIfPresent(url) {
 }
 
 function currentKernelCommit() {
-  const r = spawnSync("git", ["-C", new URL("..", import.meta.url).pathname, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-    env: { PATH: process.env.PATH }
-  });
+  const r = gitAuthority(["rev-parse", "HEAD"], { cwd: new URL("..", import.meta.url).pathname });
   return r.status === 0 && /^[0-9a-f]{40}$/.test(r.stdout.trim()) ? r.stdout.trim() : null;
 }
 

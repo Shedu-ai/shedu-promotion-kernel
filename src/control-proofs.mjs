@@ -19,6 +19,7 @@ import { isIntegrityHaltCheck, resolveEvidenceDir } from "./evaluate.mjs";
 import { commandsForPhase } from "./validators/validation-plan.mjs";
 import { runArchitectureFence } from "./architecture-fence.mjs";
 import { evaluateSupervised } from "./supervisor.mjs";
+import { git as gitAuthority, gitAuthorityIdentity } from "./git-authority.mjs";
 
 // Executable RUNTIME proofs, one per control. Each proof actually exercises
 // the control's enforcement (spawning a sandboxed command, running the
@@ -163,6 +164,11 @@ export const CONTROL_PROOFS = {
   "activation-verification": () => {
     const r = verifyActivationPair({ conformingReceiptBytes: Buffer.from("{}"), conformingPlanBytes: Buffer.from("{}"), plantedReceiptBytes: Buffer.from("{}"), plantedPlanBytes: Buffer.from("{}"), checkId: "x" });
     return { passed: r.ok === false, detail: "rejects garbage pair" };
+  },
+  "git-authority": () => {
+    const id = gitAuthorityIdentity();
+    const r = gitAuthority(["--version"]);
+    return { passed: r.status === 0 && id.path.startsWith("/") && /^sha256:[0-9a-f]{64}$/.test(id.digest) && !id.path.includes("evil"), detail: id.path };
   },
   "policy-plan-mechanism-census": () => {
     const complete = runOrphanCensus({ registered: [censusEntry("a")], implemented: [censusEntry("a")], dispatched: [censusEntry("a")], emitted: [censusEntry("a")], consumed: [censusEntry("a")] });

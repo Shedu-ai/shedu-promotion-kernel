@@ -33,7 +33,8 @@ function buildTarget() {
         checkId: "hostile-argv-check",
         validator: {
           kind: "TARGET_COMMAND",
-          argv: ["node", "check.mjs", "--arg=a b;rm -rf /", "'quoted'", "$(subshell)", "über✓"]
+          argv: ["node", "check.mjs", "--arg=a b;rm -rf /", "'quoted'", "$(subshell)", "über✓"],
+          inputManifest: ["check.mjs"]
         }
       })
     ]

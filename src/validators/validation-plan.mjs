@@ -31,7 +31,9 @@ export function validationPlanExecute(context) {
   const evidenceRefs = [];
   const reports = [];
   let infrastructureFailed = false;
-  const readRoots = baseDir ? [candidateDir, baseDir] : [candidateDir];
+  // Validation commands exercise CANDIDATE code; the candidate is the granted
+  // read root. They do not read the trusted base.
+  const readRoots = [candidateDir];
 
   for (const command of phaseCommands) {
     // Recheck the monotonic deadline before EVERY command. Once exhausted,

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 import process from "node:process";
 
 // Control points this module implements (discovered mechanically by the
@@ -62,12 +62,19 @@ function sbplString(value) {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-function buildProfile({ singleProcess, executablePath, readRoots }) {
+function buildProfile({ singleProcess, executablePath, readRoots, fileLiterals = [], dirLiterals = [] }) {
   const roots = new Set(SYSTEM_READ_ROOTS);
   for (const root of readRoots) roots.add(root);
   const readSubpaths = [...roots].sort().map((root) => `(subpath ${sbplString(root)})`);
   // The executable is granted as an EXACT FILE (literal), never its prefix.
-  const executableGrant = executablePath ? `(literal ${sbplString(executablePath)})` : "";
+  const literals = new Set();
+  if (executablePath) literals.add(executablePath);
+  // Exact file grants (e.g. declared input-manifest blobs) and directory-entry
+  // grants (so the interpreter can traverse to them, without content access to
+  // undeclared siblings).
+  for (const f of fileLiterals) literals.add(f);
+  for (const d of dirLiterals) literals.add(d);
+  const literalGrants = [...literals].sort().map((p) => `(literal ${sbplString(p)})`).join(" ");
   const rules = [
     "(version 1)",
     "(deny default)",
@@ -78,11 +85,11 @@ function buildProfile({ singleProcess, executablePath, readRoots }) {
     "(allow signal (target self))",
     "(deny network*)",
     // Metadata anywhere (path resolution stats ancestors); content reads only
-    // for the exact executable file, the declared roots, and immutable OS
-    // roots. No blanket file-read* and no directory prefix from the
-    // executable.
+    // for the exact executable, exact declared files, directory entries needed
+    // for traversal, the declared subpath roots, and immutable OS roots. No
+    // blanket file-read* and no directory prefix from the executable.
     "(allow file-read-metadata)",
-    `(allow file-read* (literal "/") ${executableGrant} ${readSubpaths.join(" ")})`,
+    `(allow file-read* (literal "/") ${literalGrants} ${readSubpaths.join(" ")})`,
     "(deny file-write*)",
     '(allow file-write-data (literal "/dev/null") (literal "/dev/dtracehelper") (literal "/dev/tty") (literal "/dev/random") (literal "/dev/urandom"))',
     '(allow file-write* (subpath "/dev/fd"))'
@@ -154,7 +161,7 @@ export function sandboxStatus() {
 // path-contained roots the command may READ (candidate and base
 // materializations). Throws SandboxUnavailableError when isolation cannot be
 // enforced — including a process ceiling this backend cannot cap exactly.
-export function isolateExecution({ executablePath, argvTail, maxProcesses, readRoots = [], cwd = process.cwd() }) {
+export function isolateExecution({ executablePath, argvTail, maxProcesses, readRoots = [], readFiles = [], cwd = process.cwd() }) {
   const status = sandboxStatus();
   if (!status.available) {
     throw new SandboxUnavailableError(`target-command isolation unavailable: ${status.reason}`);
@@ -180,7 +187,6 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
       // unresolvable; the literal grant stands
     }
   };
-  grant(cwd);
   for (const root of readRoots) {
     if (!isAbsolute(root)) {
       throw new SandboxUnavailableError(`read root must be an absolute path: ${JSON.stringify(root)}`);
@@ -188,7 +194,50 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
     grant(root);
   }
 
-  const profile = buildProfile({ singleProcess: true, executablePath, readRoots: [...grantedReadRoots] });
+  // Exact-file grants (declared input-manifest blobs) plus the directory
+  // entries needed to traverse to them and to the working directory. A dir
+  // ENTRY grant permits listing/traversal but NOT reading undeclared child
+  // file contents, so a dynamic read of an undeclared base file is denied.
+  const fileLiterals = new Set();
+  const dirLiterals = new Set();
+  const addFile = (f) => {
+    const real = (() => {
+      try {
+        return realpathSync(f);
+      } catch {
+        return f;
+      }
+    })();
+    fileLiterals.add(f);
+    fileLiterals.add(real);
+    for (const p of [f, real]) {
+      let d = dirname(p);
+      while (d && d !== "/" && !dirLiterals.has(d)) {
+        dirLiterals.add(d);
+        d = dirname(d);
+      }
+    }
+  };
+  // The working directory must be traversable/readable (node reads uv_cwd).
+  for (const p of [cwd, (() => { try { return realpathSync(cwd); } catch { return cwd; } })()]) {
+    let d = p;
+    while (d && d !== "/" && !dirLiterals.has(d)) {
+      dirLiterals.add(d);
+      d = dirname(d);
+    }
+  }
+  for (const f of readFiles) {
+    if (!isAbsolute(f)) throw new SandboxUnavailableError(`read file must be an absolute path: ${JSON.stringify(f)}`);
+    addFile(f);
+  }
+
+  const profile = buildProfile({
+    singleProcess: true,
+    executablePath,
+    readRoots: [...grantedReadRoots],
+    fileLiterals: [...fileLiterals],
+    dirLiterals: [...dirLiterals]
+  });
   return ["sandbox-exec", "-p", profile, executablePath, ...argvTail];
 }
 

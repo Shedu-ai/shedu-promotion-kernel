@@ -112,7 +112,7 @@ test("credential-named flags and credential-shaped argv values are rejected", ()
 test("pack argv and env allowlists reject credential names", () => {
   const leakyCommand = makePack({
     checks: [
-      makeCheck({ checkId: "leaky-cmd", validator: { kind: "TARGET_COMMAND", argv: ["tool", "--password=hunter2"] } })
+      makeCheck({ checkId: "leaky-cmd", validator: { kind: "TARGET_COMMAND", argv: ["tool", "--password=hunter2"], inputManifest: [] } })
     ]
   });
   assert.equal(firstReason(validateValue("policy-pack@1", leakyCommand)), "SECRET_BEARING_FIELD");

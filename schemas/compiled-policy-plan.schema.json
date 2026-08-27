@@ -116,10 +116,16 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "argv"],
+              "required": ["kind", "argv", "inputManifest"],
               "properties": {
                 "kind": {"const": "TARGET_COMMAND"},
-                "argv": {"$ref": "#/$defs/argv"}
+                "argv": {"$ref": "#/$defs/argv"},
+                "inputManifest": {
+                  "type": "array",
+                  "maxItems": 1024,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[A-Za-z0-9._/-]+$"}
+                }
               }
             }
           ]

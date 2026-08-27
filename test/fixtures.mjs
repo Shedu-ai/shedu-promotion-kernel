@@ -162,7 +162,7 @@ export function defaultTeamPack() {
       makeCheck({
         checkId: "team-check",
         effect: "ADVISORY",
-        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"] }
+        validator: { kind: "TARGET_COMMAND", argv: ["node", "-e", "process.exit(0)"], inputManifest: [] }
       })
     ]
   });

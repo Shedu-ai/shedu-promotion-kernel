@@ -1,21 +1,18 @@
-import { spawnSync } from "node:child_process";
 import { digestOfBytes, validateRelativePath } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
+import { git } from "./git-authority.mjs";
 
 // Immutable authority resolution: policy content is read exclusively from a
-// full commit object id, via git plumbing invoked with exact argv and no
-// shell. Moving refs, symlinks, non-blob objects, and digest drift all fail
-// closed, so a candidate branch can never alter the authority for its own run.
+// full commit object id, via git plumbing invoked through the closed git
+// authority with exact argv and no shell. Moving refs, symlinks, non-blob
+// objects, and digest drift all fail closed, so a candidate branch can never
+// alter the authority for its own run.
 
 const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const MAX_AUTHORITY_BYTES = 8 * 1024 * 1024;
 
 function runGit(repoDir, args, { binary = false } = {}) {
-  return spawnSync("git", ["-C", repoDir, ...args], {
-    encoding: binary ? "buffer" : "utf8",
-    maxBuffer: MAX_AUTHORITY_BYTES,
-    windowsHide: true
-  });
+  return git(args, { cwd: repoDir, binary, maxBuffer: MAX_AUTHORITY_BYTES });
 }
 
 export function verifyImmutableCommit(repoDir, commitId) {

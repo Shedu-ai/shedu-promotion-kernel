@@ -255,7 +255,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
               timeoutMs: Math.min(check.timeoutSeconds * 1000, remainingMs),
               maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
               maxProcesses: workContract.resourceCeilings.maxProcesses,
-              readRoots: [baseRealDir, candidateRealDir]
+              // The candidate (the inspection target) is granted wholesale;
+              // the validator's OWN base code is restricted to exactly its
+              // declared input manifest — an undeclared base read is denied.
+              readRoots: [candidateRealDir],
+              readFiles: (check.validator.inputManifest ?? []).map((p) => join(baseRealDir, p))
             });
             const refs = [
               evidence.put({

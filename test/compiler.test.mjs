@@ -26,7 +26,7 @@ function fixture({ mutateProfile, mutatePacks } = {}) {
         checkId: "advisory-check",
         effect: "ADVISORY",
         resultConsumer: "DISPOSITION_REDUCER",
-        validator: { kind: "TARGET_COMMAND", argv: ["node", "tools/check.mjs", "--json"] }
+        validator: { kind: "TARGET_COMMAND", argv: ["node", "tools/check.mjs", "--json"], inputManifest: [] }
       })
     ]
   });

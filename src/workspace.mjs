@@ -1,33 +1,24 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { git } from "./git-authority.mjs";
 
 // Workspace materialization for evaluation. Base and candidate are
 // materialized as detached git worktrees so validators and target commands
 // see exactly the committed tree — never a mutable checkout the candidate
-// could influence mid-run.
+// could influence mid-run. All git runs through the closed git authority.
 
-const GIT_ENV = Object.freeze({
-  // Only PATH from the host; fixed identity so tree-wrapping commits are
-  // deterministic and no ambient git config leaks into evaluation.
+const GIT_IDENTITY = Object.freeze({
   GIT_AUTHOR_NAME: "shedu-promotion-kernel",
   GIT_AUTHOR_EMAIL: "kernel@invalid",
   GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
   GIT_COMMITTER_NAME: "shedu-promotion-kernel",
   GIT_COMMITTER_EMAIL: "kernel@invalid",
-  GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null"
+  GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z"
 });
 
 export function gitRun(repoDir, args, { binary = false } = {}) {
-  return spawnSync("git", ["-C", repoDir, ...args], {
-    encoding: binary ? "buffer" : "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-    windowsHide: true,
-    env: { PATH: process.env.PATH, ...GIT_ENV }
-  });
+  return git(args, { cwd: repoDir, binary, extraEnv: GIT_IDENTITY });
 }
 
 function gitOrThrow(repoDir, args) {
