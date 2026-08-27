@@ -47,10 +47,27 @@ node src/cli.mjs --subject-probe
 
 Each emits machine-readable JSON on stdout and machine errors on stderr.
 
+## Install and try a policy pack
+
+The current distribution is installed directly from an immutable Git commit; it has no
+runtime dependencies and does not connect to a model provider. Follow
+[the installation guide](docs/INSTALLATION.md) for a pinned source checkout or a pinned
+Git dependency, supported-platform boundaries, and the external-admission requirement.
+
+The repository includes a complete, compiler-verified
+[Node source-hygiene sample](examples/node-source-hygiene/README.md): a declarative pack,
+an exact-digest profile, and a base-owned target validator. Verify its positive fixture,
+negative fixture, authority pins, and compiled plan mechanically:
+
+```sh
+npm run verify:sample-policy
+```
+
 ## Development
 
 ```sh
 npm test
+npm run verify:sample-policy
 npm run subject:probe
 ```
 

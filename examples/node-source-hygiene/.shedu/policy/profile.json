@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "policy-profile@1",
+  "profileId": "node-personal",
+  "version": "1.0.0",
+  "description": "Example personal profile selecting the hash-bound Node source-hygiene policy pack.",
+  "authorization": {
+    "mode": "UNSIGNED_PERSONAL",
+    "trustedAuthorizers": []
+  },
+  "packs": [
+    {
+      "packId": "node-source-hygiene",
+      "version": "1.0.0",
+      "path": ".shedu/policy/node-source-hygiene.json",
+      "digest": "sha256:3b913cc3dc93b4821b629c29eb42397f4d368a341ed7558f945ac8432bb30627"
+    }
+  ],
+  "strengthen": []
+}
