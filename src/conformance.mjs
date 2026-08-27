@@ -2,7 +2,7 @@ import { git as gitAuthority } from "./git-authority.mjs";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
+import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
 import { validateDocument, validateValue } from "./contracts.mjs";
 import { KERNEL_RELEASE } from "./compiler.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
@@ -450,7 +450,7 @@ function runCase(definition, outDir) {
     summaries[kind] = {
       disposition: outcome.receipt.disposition,
       planDigest: outcome.planDigest,
-      evaluationDigest: outcome.evaluationDigest,
+      resultProjectionDigest: conformanceResultProjectionDigest(outcome.receipt),
       receiptVerified: verification.ok
     };
     // A fixture that intentionally mutates its evidence store proves the
@@ -469,6 +469,30 @@ function runCase(definition, outDir) {
     summary: { caseId: definition.caseId, conforming: summaries.conforming, planted: summaries.planted },
     productionRuns
   };
+}
+
+// The full evaluation digest intentionally binds host-specific command
+// evidence, including the exact Node executable digest. The committed
+// conformance status has a different job: summarize the verified semantic
+// result in a form an external attestor can reproduce on another supported
+// host. Keep the two identities separate and explicitly named.
+export function conformanceResultProjectionDigest(receipt) {
+  return digestOfCanonical({
+    schema: "conformance-result-projection@1",
+    planDigest: receipt.digests.compiledPlan,
+    candidateId: receipt.candidate.id,
+    disposition: receipt.disposition,
+    reasonCodes: [...receipt.reasonCodes],
+    checks: receipt.checkResults.map((result) => ({
+      checkId: result.checkId,
+      packId: result.packId,
+      planDigest: result.planDigest,
+      candidateId: result.candidateId,
+      effect: result.effect,
+      outcome: result.outcome,
+      reasonCodes: [...result.reasonCodes]
+    }))
+  });
 }
 
 export function runConformance({ outDir }) {
@@ -532,14 +556,14 @@ export function runConformance({ outDir }) {
     ) && kernelActivation.every((a) => a.proven) && controlCensus.complete;
 
   const status = {
-    schemaVersion: "conformance-status@1",
+    schemaVersion: "conformance-status@2",
     kernelRelease: KERNEL_RELEASE,
     allPassed,
     cases,
     kernelActivation,
     controlCensus
   };
-  const validated = validateValue("conformance-status@1", status);
+  const validated = validateValue("conformance-status@2", status);
   if (!validated.ok) throw new Error(`invalid conformance status: ${JSON.stringify(validated.errors)}`);
   const statusBytes = Buffer.from(`${canonicalize(status)}\n`, "utf8");
   writeFileSync(join(outDir, "conformance-status.json"), statusBytes);

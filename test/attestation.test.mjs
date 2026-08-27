@@ -9,15 +9,15 @@ import { canonicalize, digestOfBytes } from "../src/canonical-json.mjs";
 import { computeAdmission, verifyFrozenSource, attestationBody, isAdmitted } from "../src/admission.mjs";
 import { KERNEL_RELEASE } from "../src/compiler.mjs";
 
-// A minimal but real conformance-status@1 that recomputes as passed.
+// A minimal but real conformance-status@2 that recomputes as passed.
 const STATUS = {
-  schemaVersion: "conformance-status@1",
+  schemaVersion: "conformance-status@2",
   kernelRelease: KERNEL_RELEASE,
   allPassed: true,
   cases: [
-    { caseId: "c1", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"1".repeat(64)}`, evaluationDigest: `sha256:${"2".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"3".repeat(64)}`, evaluationDigest: `sha256:${"4".repeat(64)}`, receiptVerified: true } },
-    { caseId: "c2", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"5".repeat(64)}`, evaluationDigest: `sha256:${"6".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"7".repeat(64)}`, evaluationDigest: `sha256:${"8".repeat(64)}`, receiptVerified: true } },
-    { caseId: "c3", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"9".repeat(64)}`, evaluationDigest: `sha256:${"a".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"b".repeat(64)}`, evaluationDigest: `sha256:${"c".repeat(64)}`, receiptVerified: true } }
+    { caseId: "c1", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"1".repeat(64)}`, resultProjectionDigest: `sha256:${"2".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"3".repeat(64)}`, resultProjectionDigest: `sha256:${"4".repeat(64)}`, receiptVerified: true } },
+    { caseId: "c2", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"5".repeat(64)}`, resultProjectionDigest: `sha256:${"6".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"7".repeat(64)}`, resultProjectionDigest: `sha256:${"8".repeat(64)}`, receiptVerified: true } },
+    { caseId: "c3", conforming: { disposition: "PROMOTABLE", planDigest: `sha256:${"9".repeat(64)}`, resultProjectionDigest: `sha256:${"a".repeat(64)}`, receiptVerified: true }, planted: { disposition: "BLOCKED", planDigest: `sha256:${"b".repeat(64)}`, resultProjectionDigest: `sha256:${"c".repeat(64)}`, receiptVerified: true } }
   ],
   kernelActivation: [{ mechanismId: "m1", caseId: "c1", proven: true }],
   controlCensus: {
@@ -110,6 +110,13 @@ test("end-to-end: an external attestation over a clean frozen commit admits EXPE
   const admission = admitFor(repo, signer, attestationBytes);
   assert.equal(isAdmitted(admission), true, JSON.stringify(admission.reasons));
   assert.equal(admission.status, "EXPERIMENTAL");
+});
+
+test("a legacy conformance-status@1 cannot admit the v2 kernel release", () => {
+  const legacy = Buffer.from(canonicalize({ ...STATUS, schemaVersion: "conformance-status@1" }), "utf8");
+  const outcome = computeAdmission({ statusBytes: legacy });
+  assert.equal(isAdmitted(outcome), false);
+  assert.match(outcome.reasons.join(" "), /not schema-valid/);
 });
 
 test("end-to-end: dirty source cannot run under an attestation for the clean commit", () => {

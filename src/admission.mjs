@@ -126,7 +126,7 @@ export function computeAdmission({
   kernelRelease = KERNEL_RELEASE
 } = {}) {
   if (statusBytes === null) return foundationOutcome(["no conformance status is present"]);
-  const statusDoc = validateDocument("conformance-status@1", statusBytes);
+  const statusDoc = validateDocument("conformance-status@2", statusBytes);
   if (!statusDoc.ok) return foundationOutcome(["conformance status is not schema-valid"]);
   if (statusDoc.value.kernelRelease !== kernelRelease) {
     return foundationOutcome([`conformance status is for ${statusDoc.value.kernelRelease}, not ${kernelRelease}`]);

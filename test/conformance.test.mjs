@@ -7,6 +7,8 @@ import test from "node:test";
 import { validateDocument } from "../src/contracts.mjs";
 import { verifyReceipt } from "../src/receipt.mjs";
 import { KERNEL_RELEASE } from "../src/compiler.mjs";
+import { conformanceResultProjectionDigest } from "../src/conformance.mjs";
+import { evaluationDigestOf } from "../src/evaluate.mjs";
 
 // AC-13/AC-14 plus the kernel activation proof (brief §7 items 5–6): every
 // case is a conforming/planted receipt pair, one per kernel mechanism beyond
@@ -56,16 +58,53 @@ test("the zero-provider conformance matrix passes and reproduces the committed s
       assert.notEqual(c.conforming.planDigest, c.planted.planDigest, c.caseId);
     } else {
       assert.equal(c.conforming.planDigest, c.planted.planDigest, c.caseId);
-      assert.notEqual(c.conforming.evaluationDigest, c.planted.evaluationDigest, c.caseId);
+      assert.notEqual(c.conforming.resultProjectionDigest, c.planted.resultProjectionDigest, c.caseId);
     }
   }
 
   const committed = readFileSync(new URL("../conformance/status.json", import.meta.url));
   assert.equal(statusBytes.toString("utf8"), committed.toString("utf8"));
 
-  const validated = validateDocument("conformance-status@1", committed);
+  const validated = validateDocument("conformance-status@2", committed);
   assert.equal(validated.ok, true);
   assert.equal(validated.value.kernelRelease, KERNEL_RELEASE);
+});
+
+test("the portable result projection excludes host evidence but binds semantic outcomes", () => {
+  const receipt = JSON.parse(readFileSync(join(OUT_DIR, "minimal-personal", "conforming", "receipt.json"), "utf8"));
+  const original = conformanceResultProjectionDigest(receipt);
+  const hostVariant = structuredClone(receipt);
+  hostVariant.checkResults[0].startedAt = "2099-01-01T00:00:00Z";
+  hostVariant.checkResults[0].completedAt = "2099-01-01T00:00:01Z";
+  hostVariant.checkResults[0].evidence = [{
+    artifactId: "host-specific-evidence",
+    digest: `sha256:${"f".repeat(64)}`,
+    mediaType: "application/json"
+  }];
+  assert.equal(conformanceResultProjectionDigest(hostVariant), original);
+  const evaluationOf = (value) => evaluationDigestOf({
+    planDigest: value.digests.compiledPlan,
+    results: value.checkResults,
+    disposition: value.disposition,
+    reasonCodes: value.reasonCodes
+  });
+  assert.notEqual(evaluationOf(hostVariant), evaluationOf(receipt));
+
+  const semanticMutations = [
+    (value) => { value.digests.compiledPlan = `sha256:${"1".repeat(64)}`; },
+    (value) => { value.candidate.id = "1".repeat(40); },
+    (value) => { value.disposition = "BLOCKED"; },
+    (value) => { value.reasonCodes = ["COMMAND_FAILED"]; },
+    (value) => { value.checkResults[0].checkId = "changed-check"; },
+    (value) => { value.checkResults[0].effect = value.checkResults[0].effect === "BLOCKING" ? "ADVISORY" : "BLOCKING"; },
+    (value) => { value.checkResults[0].outcome = "FIRED"; },
+    (value) => { value.checkResults[0].reasonCodes = ["COMMAND_FAILED"]; }
+  ];
+  for (const mutate of semanticMutations) {
+    const semanticVariant = structuredClone(receipt);
+    mutate(semanticVariant);
+    assert.notEqual(conformanceResultProjectionDigest(semanticVariant), original);
+  }
 });
 
 test("every kernel mechanism has a mechanically proven activation pair", () => {

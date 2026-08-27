@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/conformance-status.schema.json",
-  "title": "conformance-status@1",
-  "description": "Deterministic summary of the zero-provider conformance matrix. Every field is reproducible by re-running the matrix, so the FOUNDATION_ONLY to EXPERIMENTAL transition is controlled by regenerable evidence, not prose.",
+  "title": "conformance-status@2",
+  "description": "Portable semantic summary of the zero-provider conformance matrix. Host-bound command reports, evidence, receipts, and evaluation digests remain retained outside this projection; every projected field is reproducible across supported attestation hosts.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "kernelRelease", "allPassed", "cases", "kernelActivation", "controlCensus"],
   "properties": {
-    "schemaVersion": {"const": "conformance-status@1"},
+    "schemaVersion": {"const": "conformance-status@2"},
     "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
     "allPassed": {"type": "boolean"},
     "controlCensus": {
@@ -73,11 +73,11 @@
     "runSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["disposition", "planDigest", "evaluationDigest", "receiptVerified"],
+      "required": ["disposition", "planDigest", "resultProjectionDigest", "receiptVerified"],
       "properties": {
         "disposition": {"enum": ["PROMOTABLE", "BLOCKED"]},
         "planDigest": {"$ref": "#/$defs/digest"},
-        "evaluationDigest": {"$ref": "#/$defs/digest"},
+        "resultProjectionDigest": {"$ref": "#/$defs/digest"},
         "receiptVerified": {"type": "boolean"}
       }
     }

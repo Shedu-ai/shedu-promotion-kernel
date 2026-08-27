@@ -35,13 +35,16 @@ test("a clean detached worktree with an external attestation admits and evaluate
     const statusBytes = readFileSync(join(wt, "conformance", "status.json"));
     const inventoryBytes = readFileSync(join(wt, "registry", "kernel-mechanisms.json"));
     const controlBytes = readFileSync(join(wt, "registry", "control-surface.json"));
+    const packageDocument = JSON.parse(readFileSync(join(wt, "package.json"), "utf8"));
+    const frozenRelease = `${packageDocument.name}@${packageDocument.version}`;
     const { privateKey } = generateKeyPairSync("ed25519");
     const publicKeyHex = Buffer.from(createPublicKey(privateKey).export({ format: "jwk" }).x, "base64url").toString("hex");
     const body = attestationBody({
       kernelCommit: head,
       statusDigest: digestOfBytes(statusBytes),
       mechanismInventoryDigest: digestOfBytes(inventoryBytes),
-      controlSurfaceDigest: digestOfBytes(controlBytes)
+      controlSurfaceDigest: digestOfBytes(controlBytes),
+      kernelRelease: frozenRelease
     });
     const signature = cryptoSign(null, Buffer.from(canonicalize(body), "utf8"), privateKey).toString("hex");
     const attPath = join(mkdtempSync(join(tmpdir(), "shedu-att-")), "attestation.json");
