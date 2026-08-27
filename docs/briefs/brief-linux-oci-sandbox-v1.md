@@ -4,7 +4,7 @@
 
 **Priority:** HIGH
 
-**Status:** IMPLEMENTING · zero-provider · 2026-08-27
+**Status:** IMPLEMENTED · zero-provider · macOS 232/232 · Linux 231 pass + 1 platform-specific skip / 232 · [cross-platform CI green](https://github.com/Shedu-ai/shedu-promotion-kernel/actions/runs/33124475864) · closeout: [`closeout-linux-oci-sandbox-v1.md`](closeout-linux-oci-sandbox-v1.md) · 2026-08-27
 
 ## Objective
 
