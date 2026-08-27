@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "policy-pack@1",
+  "packId": "node-source-hygiene",
+  "version": "1.0.0",
+  "description": "Example target policy: reject TODO and FIXME markers in candidate JavaScript and TypeScript source files using an immutable base-owned validator.",
+  "phases": [
+    "CANDIDATE_VALIDATION"
+  ],
+  "dependencies": [],
+  "checks": [
+    {
+      "checkId": "node-source-hygiene",
+      "phase": "CANDIDATE_VALIDATION",
+      "effect": "BLOCKING",
+      "validator": {
+        "kind": "TARGET_COMMAND",
+        "argv": [
+          "node",
+          ".shedu/validators/source-hygiene.mjs"
+        ],
+        "inputManifest": [
+          ".shedu/validators/source-hygiene.mjs"
+        ]
+      },
+      "inputs": [
+        "candidate-workspace"
+      ],
+      "outputSchemaId": "check-result@1",
+      "timeoutSeconds": 60,
+      "network": "NONE",
+      "filesystem": "READ_ONLY",
+      "envAllowlist": [],
+      "resultConsumer": "DISPOSITION_REDUCER"
+    }
+  ]
+}

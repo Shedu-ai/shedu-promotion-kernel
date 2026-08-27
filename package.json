@@ -13,6 +13,7 @@
   },
   "scripts": {
     "subject:probe": "node src/cli.mjs --subject-probe",
+    "verify:sample-policy": "node scripts/verify-sample-policy.mjs",
     "test": "node --test"
   }
 }

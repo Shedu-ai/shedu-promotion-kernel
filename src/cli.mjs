@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
@@ -309,6 +310,18 @@ export function main(argv = process.argv.slice(2)) {
   return 2;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// npm exposes package bins through a symlink. Compare canonical filesystem
+// identities so the installed bin runs, while an imported module remains
+// inert. A missing/unresolvable argv[1] is never treated as direct execution.
+export function isDirectCliInvocation(argv1 = process.argv[1]) {
+  if (typeof argv1 !== "string" || argv1.length === 0) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCliInvocation()) {
   process.exitCode = main();
 }
