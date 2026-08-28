@@ -107,7 +107,26 @@ export const CONTROL_PROOFS = {
     });
     return {
       passed: strictPassed && positive.succeeded && pressure.taskBudgetExceeded && !pressure.succeeded,
-      detail: "strict denial + bounded pass + planted task overflow"
+      detail: {
+        strict: {
+          status: r.status ?? null,
+          signal: r.signal ?? null,
+          stdout: String(r.stdout ?? "").slice(0, 256),
+          stderr: String(r.stderr ?? "").slice(0, 256)
+        },
+        boundedPositive: {
+          succeeded: positive.succeeded,
+          spawnFailed: positive.spawnFailed,
+          taskBudgetExceeded: positive.taskBudgetExceeded,
+          execution: positive.report?.execution ?? null
+        },
+        boundedOverflow: {
+          succeeded: pressure.succeeded,
+          spawnFailed: pressure.spawnFailed,
+          taskBudgetExceeded: pressure.taskBudgetExceeded,
+          execution: pressure.report?.execution ?? null
+        }
+      }
     };
   },
   "command-output-ceiling": () => {

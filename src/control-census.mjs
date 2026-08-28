@@ -91,7 +91,15 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, pr
       continue;
     }
     if (!result || result.passed !== true) {
-      findings.push({ id: control.id, reasonCode: "CONTROL_UNPROVEN", message: `control ${control.id} runtime proof did not pass` });
+      const encodedDetail = result && Object.hasOwn(result, "detail")
+        ? JSON.stringify(result.detail)
+        : null;
+      const detail = typeof encodedDetail === "string" ? encodedDetail.slice(0, 4096) : "null";
+      findings.push({
+        id: control.id,
+        reasonCode: "CONTROL_UNPROVEN",
+        message: `control ${control.id} runtime proof did not pass: ${detail}`
+      });
       continue;
     }
     // The ledger refuses events for unregistered controls; recording here is
