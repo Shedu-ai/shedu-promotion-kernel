@@ -31,7 +31,10 @@ rewritten.push(
   {
     names: ["clone"],
     action: "SCMP_ACT_ALLOW",
-    args: [{ index: 0, value: 0, valueTwo: namespaceMask, op: "SCMP_CMP_MASKED_EQ" }],
+    // OCI/libseccomp encodes MASKED_EQ as (argument & value) == valueTwo.
+    // `value` is therefore the namespace-bit mask and `valueTwo` is the
+    // required zero result. Reversing these operands denies every clone.
+    args: [{ index: 0, value: namespaceMask, valueTwo: 0, op: "SCMP_CMP_MASKED_EQ" }],
     comment: "Allow threads and child processes only when every namespace-creation flag is zero."
   },
   {

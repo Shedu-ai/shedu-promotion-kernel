@@ -706,8 +706,8 @@
       "args": [
         {
           "index": 0,
-          "value": 0,
-          "valueTwo": 2114060416,
+          "value": 2114060416,
+          "valueTwo": 0,
           "op": "SCMP_CMP_MASKED_EQ"
         }
       ],

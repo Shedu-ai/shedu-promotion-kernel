@@ -188,8 +188,8 @@ test("the bounded seccomp authority allows ordinary children but not namespaces 
   }
   const clone = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "clone");
   assert.equal(clone.args[0].op, "SCMP_CMP_MASKED_EQ");
-  assert.equal(clone.args[0].value, 0);
-  assert.ok(clone.args[0].valueTwo > 0);
+  assert.ok(clone.args[0].value > 0, "value is the namespace-bit mask");
+  assert.equal(clone.args[0].valueTwo, 0, "valueTwo is the required masked result");
   const clone3 = policy.syscalls.find((rule) => rule.names.includes("clone3"));
   assert.equal(clone3.action, "SCMP_ACT_ERRNO");
 });
