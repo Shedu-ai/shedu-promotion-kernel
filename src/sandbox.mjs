@@ -35,6 +35,13 @@ export const CONTROL_POINTS = Object.freeze([
 export const LINUX_BOUNDED_CHILD_PROBE_SCRIPT =
   'const f=require("node:fs"),r=require("node:child_process").spawnSync(process.execPath,["-e","require(\\"node:fs\\").writeSync(1,String.fromCharCode(67,72,73,76,68))"]),s=String(r.stdout??"");if(!r.error&&r.status===0&&Buffer.isBuffer(r.stdout)&&s==="CHILD")f.writeSync(1,s);else{f.writeSync(1,JSON.stringify({error:r.error?.code??null,status:r.status??null,isBuffer:Buffer.isBuffer(r.stdout),stdout:s,stderr:String(r.stderr??"")}));process.exitCode=r.error?61:r.status!==0?62:!Buffer.isBuffer(r.stdout)?63:64}';
 
+// One canonical negative fixture proves that the cgroup task budget FIRES.
+// Both backend admission and the registered runtime control proof execute
+// these exact bytes, preventing a stale duplicate from skipping child drain
+// and suppressing the supervisor's final resource report.
+export const LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT =
+  'const f=require("node:fs"),{spawn}=require("node:child_process"),children=[];let spawned=0,errors=0;for(let i=0;i<256;i++){const c=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);if(c.pid)spawned++;c.on("error",()=>errors++);children.push(c)}setTimeout(()=>{for(const c of children){try{c.kill("SIGKILL")}catch{}}f.writeSync(1,JSON.stringify({attempted:256,spawned,errors}));process.exitCode=0},500)';
+
 export function formatLinuxBoundedProbeFailure(result) {
   const details = {
     error: result.error
@@ -455,7 +462,7 @@ function defaultLinuxBoundedProbeRunner() {
 
     const pressure = runLinuxProbeScript(
       authority,
-      'const f=require("node:fs"),{spawn}=require("node:child_process"),children=[];let spawned=0,errors=0;for(let i=0;i<256;i++){const c=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);if(c.pid)spawned++;c.on("error",()=>errors++);children.push(c)}setTimeout(()=>{for(const c of children){try{c.kill("SIGKILL")}catch{}}f.writeSync(1,JSON.stringify({attempted:256,spawned,errors}));process.exitCode=0},500)',
+      LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT,
       { cwd: root, readRoots: [root], execution: { class: "BOUNDED_PROCESS_TREE", maxTasks: 65 } }
     );
     if (pressure.resourceReport?.limitFired !== true || pressure.resourceReport.limitEvents < 1) {

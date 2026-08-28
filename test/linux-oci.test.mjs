@@ -14,6 +14,7 @@ import {
 } from "../src/oci-runtime.mjs";
 import {
   LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
+  LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT,
   buildLinuxOciInvocation,
   formatLinuxBoundedProbeFailure,
   parseLinuxSupervisorOutput
@@ -77,7 +78,11 @@ test("bounded readiness failures retain all machine fields when stderr is empty"
 
 test("the bounded pressure probe emits machine attempt counts and preserves cgroup diagnostics", () => {
   const source = readFileSync(new URL("../src/sandbox.mjs", import.meta.url), "utf8");
-  assert.match(source, /attempted:256,spawned,errors/);
+  assert.match(LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT, /attempted:256,spawned,errors/);
+  assert.ok(!LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT.includes("process.exit("));
+  assert.ok(LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT.includes("process.exitCode=0"));
+  const proofs = readFileSync(new URL("../src/control-proofs.mjs", import.meta.url), "utf8");
+  assert.match(proofs, /argv: \["node", "-e", LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT\]/);
   assert.match(source, /formatLinuxBoundedProbeFailure\(pressure\)/);
 });
 

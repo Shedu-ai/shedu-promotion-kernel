@@ -8,7 +8,11 @@ import { createEvidenceIndex } from "./evidence.mjs";
 import { reduceDisposition, isReducerDisposition } from "./reducer.mjs";
 import { runOrphanCensus } from "./census.mjs";
 import { runTargetCommand } from "./runner.mjs";
-import { isolateExecution } from "./sandbox.mjs";
+import {
+  isolateExecution,
+  LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
+  LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT
+} from "./sandbox.mjs";
 import { kernelToolchain, ToolchainError, KERNEL_NODE_PATH } from "./toolchain.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
 import { computeAdmission, isAdmitted, deriveConformancePassed } from "./admission.mjs";
@@ -88,7 +92,7 @@ export const CONTROL_PROOFS = {
     const positive = runTargetCommand({
       commandId: "bounded-positive",
       phase: "CANDIDATE_VALIDATION",
-      argv: ["node", "-e", 'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.exit(0)"]);process.exit(r.status??1)'],
+      argv: ["node", "-e", LINUX_BOUNDED_CHILD_PROBE_SCRIPT],
       cwd: process.cwd(),
       timeoutMs: 30000,
       maxOutputBytes: 1024 * 1024,
@@ -98,7 +102,7 @@ export const CONTROL_PROOFS = {
     const pressure = runTargetCommand({
       commandId: "bounded-pressure",
       phase: "CANDIDATE_VALIDATION",
-      argv: ["node", "-e", 'const{spawn}=require("node:child_process");const c=[];for(let i=0;i<256;i++){const p=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);p.on("error",()=>{});c.push(p)}setTimeout(()=>{for(const p of c){try{p.kill("SIGKILL")}catch{}}process.exit(0)},500)'],
+      argv: ["node", "-e", LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT],
       cwd: process.cwd(),
       timeoutMs: 30000,
       maxOutputBytes: 1024 * 1024,
