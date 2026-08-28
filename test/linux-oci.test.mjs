@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { digestOfBytes, digestOfCanonical } from "../src/canonical-json.mjs";
@@ -11,7 +12,11 @@ import {
   ociHostEnvironment,
   portableLinuxExecutionAuthority
 } from "../src/oci-runtime.mjs";
-import { buildLinuxOciInvocation, parseLinuxSupervisorOutput } from "../src/sandbox.mjs";
+import {
+  LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
+  buildLinuxOciInvocation,
+  parseLinuxSupervisorOutput
+} from "../src/sandbox.mjs";
 import { EXECUTION_PRESETS } from "../src/execution-policy.mjs";
 import { SUPERVISOR_REPORT_MAGIC, parsePidsEvents } from "../src/process-tree-supervisor.mjs";
 
@@ -34,6 +39,16 @@ test("the Linux image authority is an immutable OCI digest, never a tag", () => 
   assert.match(LINUX_OCI_IMAGE_DIGEST, /^sha256:[0-9a-f]{64}$/);
   assert.equal(LINUX_OCI_IMAGE, `docker.io/library/node@${LINUX_OCI_IMAGE_DIGEST}`);
   assert.ok(!/library\/node:/.test(LINUX_OCI_IMAGE), "the image reference must not contain a mutable tag");
+});
+
+test("the bounded readiness artifact is executable exact JavaScript", () => {
+  const result = spawnSync(process.execPath, ["-e", LINUX_BOUNDED_CHILD_PROBE_SCRIPT], {
+    encoding: "utf8",
+    timeout: 5_000
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "CHILD");
 });
 
 test("the OCI transport preserves exact argv and never places environment values in argv", () => {

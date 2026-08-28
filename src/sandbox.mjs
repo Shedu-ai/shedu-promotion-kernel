@@ -29,6 +29,12 @@ export const CONTROL_POINTS = Object.freeze([
   "sandbox-process-ceiling"
 ]);
 
+// Exact argv payload used to prove that the bounded backend can launch and
+// supervise one ordinary child. Avoid nested quoted source: the readiness
+// artifact is imported and executed by a host test before Linux OCI sees it.
+export const LINUX_BOUNDED_CHILD_PROBE_SCRIPT =
+  'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(String.fromCharCode(67,72,73,76,68))"]);process.stdout.write(r.stdout);process.exit(r.status??1)';
+
 // Mandatory OS isolation backend for target-command execution. Isolation is
 // DEFAULT-DENY: nothing is permitted unless mechanically declared.
 //
@@ -422,7 +428,7 @@ function defaultLinuxBoundedProbeRunner() {
     root = realpathSync(mkdtempSync(join(tmpdir(), "shedu-oci-bounded-probe-")));
     const positive = runLinuxProbeScript(
       authority,
-      'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(\"CHILD\")"]);process.stdout.write(r.stdout);process.exit(r.status??1)',
+      LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
       { cwd: root, readRoots: [root], execution: EXECUTION_PRESETS.STANDARD_TEST }
     );
     if (positive.error || positive.status !== 0 || positive.stdout !== "CHILD" || positive.resourceReport?.limitFired !== false) {
