@@ -29,9 +29,6 @@ jobs:
       - name: Materialize the immutable Linux sandbox image
         if: runner.os == 'Linux'
         run: npm run sandbox:linux:pull
-      - name: Diagnose bounded Linux child launch
-        if: runner.os == 'Linux'
-        run: node scripts/diagnose-linux-spawn.mjs
       - name: Full hostile and conformance suite
         run: npm test
       - name: Verify the executable sample policy

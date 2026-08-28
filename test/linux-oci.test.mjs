@@ -183,9 +183,12 @@ test("the bounded seccomp authority allows ordinary children but not namespaces 
   );
   assert.ok(unconditional.has("fork"));
   assert.ok(unconditional.has("vfork"));
-  for (const syscall of ["unshare", "setns", "setpgid", "setsid", "socket", "connect", "bind", "listen"]) {
+  for (const syscall of ["unshare", "setns", "setpgid", "setsid", "socket", "socketpair", "connect", "bind", "listen"]) {
     assert.ok(!unconditional.has(syscall), syscall);
   }
+  const socketpair = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "socketpair");
+  assert.equal(socketpair.action, "SCMP_ACT_ALLOW");
+  assert.deepEqual(socketpair.args, [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }]);
   const clone = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "clone");
   assert.equal(clone.args[0].op, "SCMP_CMP_MASKED_EQ");
   assert.ok(clone.args[0].value > 0, "value is the namespace-bit mask");

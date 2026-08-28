@@ -115,8 +115,10 @@ continue to mean exactly one process; they are not reinterpreted as `@2`.
 1. The strict seccomp profile remains byte-identical for `SINGLE_PROCESS`.
 2. A separate checked-in, hash-bound bounded-tree seccomp profile admits only
    the process syscalls needed by the conformance workloads. Namespace creation,
-   `unshare`, `setns`, privileged operations, network syscalls, and privilege
-   gain remain denied.
+   `unshare`, `setns`, privileged operations, Internet socket creation, and
+   privilege gain remain denied. Only `socketpair(AF_UNIX, ...)`, required by
+   the pinned Node/libuv child-launch transport, is admitted; all Internet
+   socket families and network connection/listen operations remain denied.
 3. The OCI invocation applies the compiled `maxTasks` through cgroup
    `pids.max`. Absence, rounding, substitution, or inability to read back the
    applied limit produces `SANDBOX_UNAVAILABLE`.

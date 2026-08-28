@@ -3,7 +3,7 @@
   "sourcePolicy": "linux-seccomp.json",
   "sourceDigest": "sha256:3ab71157475e387f6c0a8cc153ad00b2883d35dcc4058325088a4dbc22bb62cd",
   "generator": "../scripts/generate-bounded-seccomp.mjs",
-  "generatorDigest": "sha256:26167c5c0b8baf59893c2d2fadbc376df8140d276b3218686a305c68348a73a5",
+  "generatorDigest": "sha256:d30fe069d47c13acb63d938f9e505190b2706620b2df83f1f752852a05f0776a",
   "derivedPolicy": "linux-seccomp-bounded.json",
-  "derivedDigest": "sha256:512858c764f5a6cf3b09ad3f0e453ce1f06f2514f7f1a9b383f604541e618d5e"
+  "derivedDigest": "sha256:2c552aa475b62d07b10a1a487ef377c0698c606000a9ebfd90521ed6e7f624a5"
 }

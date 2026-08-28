@@ -29,6 +29,12 @@ const namespaceMask =
 
 rewritten.push(
   {
+    names: ["socketpair"],
+    action: "SCMP_ACT_ALLOW",
+    args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }],
+    comment: "Allow only AF_UNIX socketpairs required by libuv child-process transport; Internet socket families remain denied."
+  },
+  {
     names: ["clone"],
     action: "SCMP_ACT_ALLOW",
     // OCI/libseccomp encodes MASKED_EQ as (argument & value) == valueTwo.
