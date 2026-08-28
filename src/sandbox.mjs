@@ -33,7 +33,7 @@ export const CONTROL_POINTS = Object.freeze([
 // supervise one ordinary child. Avoid nested quoted source: the readiness
 // artifact is imported and executed by a host test before Linux OCI sees it.
 export const LINUX_BOUNDED_CHILD_PROBE_SCRIPT =
-  'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(String.fromCharCode(67,72,73,76,68))"]);process.stdout.write(r.stdout);process.exit(r.status??1)';
+  'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(String.fromCharCode(67,72,73,76,68))"]);process.stdout.write(r.stdout);process.exitCode=r.status??1';
 
 export function formatLinuxBoundedProbeFailure(result) {
   const details = {
