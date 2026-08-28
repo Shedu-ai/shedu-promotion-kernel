@@ -47,6 +47,7 @@ test("the bounded readiness artifact is executable exact JavaScript", () => {
   assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("process.exitCode="));
   assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("!r.error"));
   assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("stderr:String(r.stderr"));
+  assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("writeSync(1"));
   const result = spawnSync(process.execPath, ["-e", LINUX_BOUNDED_CHILD_PROBE_SCRIPT], {
     encoding: "utf8",
     timeout: 5_000

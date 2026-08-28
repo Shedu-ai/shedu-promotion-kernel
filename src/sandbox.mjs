@@ -33,7 +33,7 @@ export const CONTROL_POINTS = Object.freeze([
 // supervise one ordinary child. Avoid nested quoted source: the readiness
 // artifact is imported and executed by a host test before Linux OCI sees it.
 export const LINUX_BOUNDED_CHILD_PROBE_SCRIPT =
-  'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(String.fromCharCode(67,72,73,76,68))"]);const s=String(r.stdout??"");if(!r.error&&r.status===0&&s==="CHILD")process.stdout.write(s);else{process.stdout.write(JSON.stringify({error:r.error?.code??null,status:r.status??null,stdout:s,stderr:String(r.stderr??"")}));process.exitCode=1}';
+  'const f=require("node:fs"),r=require("node:child_process").spawnSync(process.execPath,["-e","require(\\"node:fs\\").writeSync(1,String.fromCharCode(67,72,73,76,68))"]),s=String(r.stdout??"");if(!r.error&&r.status===0&&Buffer.isBuffer(r.stdout)&&s==="CHILD")f.writeSync(1,s);else{f.writeSync(1,JSON.stringify({error:r.error?.code??null,status:r.status??null,isBuffer:Buffer.isBuffer(r.stdout),stdout:s,stderr:String(r.stderr??"")}));process.exitCode=r.error?61:r.status!==0?62:!Buffer.isBuffer(r.stdout)?63:64}';
 
 export function formatLinuxBoundedProbeFailure(result) {
   const details = {
