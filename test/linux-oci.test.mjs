@@ -75,6 +75,12 @@ test("bounded readiness failures retain all machine fields when stderr is empty"
   });
 });
 
+test("the bounded pressure probe emits machine attempt counts and preserves cgroup diagnostics", () => {
+  const source = readFileSync(new URL("../src/sandbox.mjs", import.meta.url), "utf8");
+  assert.match(source, /attempted:256,spawned,errors/);
+  assert.match(source, /formatLinuxBoundedProbeFailure\(pressure\)/);
+});
+
 test("the OCI transport preserves exact argv and never places environment values in argv", () => {
   const hostile = ["a b", "$(subshell)", "semi;colon", "quotes'\"", "unicode-✓", "--", "x,y"];
   const invocation = buildLinuxOciInvocation({

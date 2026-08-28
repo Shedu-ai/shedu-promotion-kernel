@@ -455,11 +455,14 @@ function defaultLinuxBoundedProbeRunner() {
 
     const pressure = runLinuxProbeScript(
       authority,
-      'const {spawn}=require("node:child_process");const children=[];for(let i=0;i<256;i++){const c=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);c.on("error",()=>{});children.push(c)}setTimeout(()=>{for(const c of children){try{c.kill("SIGKILL")}catch{}}process.exit(0)},500)',
+      'const f=require("node:fs"),{spawn}=require("node:child_process"),children=[];let spawned=0,errors=0;for(let i=0;i<256;i++){const c=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);if(c.pid)spawned++;c.on("error",()=>errors++);children.push(c)}setTimeout(()=>{for(const c of children){try{c.kill("SIGKILL")}catch{}}f.writeSync(1,JSON.stringify({attempted:256,spawned,errors}));process.exitCode=0},500)',
       { cwd: root, readRoots: [root], execution: { class: "BOUNDED_PROCESS_TREE", maxTasks: 65 } }
     );
     if (pressure.resourceReport?.limitFired !== true || pressure.resourceReport.limitEvents < 1) {
-      return { available: false, reason: "bounded cgroup probe did not record a pids.max event" };
+      return {
+        available: false,
+        reason: `bounded cgroup probe did not record a pids.max event: ${formatLinuxBoundedProbeFailure(pressure)}`
+      };
     }
     return { available: true, reason: null, backend: "linux-oci", authorityDigest: authority.authorityDigest };
   } catch (error) {
