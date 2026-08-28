@@ -15,6 +15,7 @@ import {
 import {
   LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
   buildLinuxOciInvocation,
+  formatLinuxBoundedProbeFailure,
   parseLinuxSupervisorOutput
 } from "../src/sandbox.mjs";
 import { EXECUTION_PRESETS } from "../src/execution-policy.mjs";
@@ -49,6 +50,24 @@ test("the bounded readiness artifact is executable exact JavaScript", () => {
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "CHILD");
+});
+
+test("bounded readiness failures retain all machine fields when stderr is empty", () => {
+  const reason = formatLinuxBoundedProbeFailure({
+    status: 70,
+    signal: null,
+    stdout: "target-evidence",
+    stderr: "",
+    resourceReport: { limitFired: true }
+  });
+  assert.deepEqual(JSON.parse(reason.slice(reason.indexOf("{")).trim()), {
+    error: null,
+    status: 70,
+    signal: null,
+    stdout: "target-evidence",
+    stderr: "",
+    resourceReport: { limitFired: true }
+  });
 });
 
 test("the OCI transport preserves exact argv and never places environment values in argv", () => {

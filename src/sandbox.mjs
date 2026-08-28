@@ -35,6 +35,24 @@ export const CONTROL_POINTS = Object.freeze([
 export const LINUX_BOUNDED_CHILD_PROBE_SCRIPT =
   'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(String.fromCharCode(67,72,73,76,68))"]);process.stdout.write(r.stdout);process.exit(r.status??1)';
 
+export function formatLinuxBoundedProbeFailure(result) {
+  const details = {
+    error: result.error
+      ? {
+          name: result.error.name ?? null,
+          code: result.error.code ?? null,
+          message: String(result.error.message ?? result.error).slice(0, 1024)
+        }
+      : null,
+    status: result.status ?? null,
+    signal: result.signal ?? null,
+    stdout: String(result.stdout ?? "").slice(0, 1024),
+    stderr: String(result.stderr ?? "").slice(0, 1024),
+    resourceReport: result.resourceReport ?? null
+  };
+  return `bounded child-process probe failed: ${JSON.stringify(details)}`;
+}
+
 // Mandatory OS isolation backend for target-command execution. Isolation is
 // DEFAULT-DENY: nothing is permitted unless mechanically declared.
 //
@@ -432,7 +450,7 @@ function defaultLinuxBoundedProbeRunner() {
       { cwd: root, readRoots: [root], execution: EXECUTION_PRESETS.STANDARD_TEST }
     );
     if (positive.error || positive.status !== 0 || positive.stdout !== "CHILD" || positive.resourceReport?.limitFired !== false) {
-      return { available: false, reason: `bounded child-process probe failed: ${positive.error ?? positive.stderr ?? positive.stdout}` };
+      return { available: false, reason: formatLinuxBoundedProbeFailure(positive) };
     }
 
     const pressure = runLinuxProbeScript(
