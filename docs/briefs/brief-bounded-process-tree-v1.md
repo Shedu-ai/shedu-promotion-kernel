@@ -4,8 +4,8 @@
 
 **Priority:** HIGH
 
-**Status:** IMPLEMENTED LOCALLY · Linux activation pending CI · zero-provider ·
-depends on `linux-oci-sandbox-v1` · 2026-08-27
+**Status:** IMPLEMENTED AND ACTIVATED · repeated Linux OCI + macOS CI green ·
+zero-provider · depends on `linux-oci-sandbox-v1` · 2026-08-28
 
 ## Objective
 
