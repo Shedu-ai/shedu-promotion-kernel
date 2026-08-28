@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { realpathSync } from "node:fs";
 import process from "node:process";
 import test from "node:test";
 import { isolateExecution, probeBackendWith, sandboxStatus } from "../src/sandbox.mjs";
+import { KERNEL_NODE_PATH } from "../src/toolchain.mjs";
+import { LINUX_OCI_IMAGE } from "../src/oci-runtime.mjs";
 
-const NODE = realpathSync(process.execPath);
+const NODE = KERNEL_NODE_PATH;
 
 test("the native sandbox backend is available in this environment", () => {
   // This suite must run where the OS sandbox can actually execute; if it
@@ -39,17 +40,24 @@ test("isolateExecution refuses a process ceiling the backend cannot enforce exac
     (e) => e.reasonCode === "SANDBOX_UNAVAILABLE"
   );
   const wrapped = isolateExecution({ executablePath: NODE, argvTail: ["-e", "0"], maxProcesses: 1, readRoots: [], cwd: process.cwd() });
-  assert.equal(wrapped[0], "sandbox-exec");
+  assert.ok(process.platform === "linux" ? wrapped[0].endsWith("/docker") : wrapped[0] === "sandbox-exec");
   assert.ok(wrapped.includes(NODE));
+  wrapped.cleanup?.();
 });
 
 test("the executable is granted as an exact file, never its parent prefix", () => {
   const wrapped = isolateExecution({ executablePath: NODE, argvTail: ["-e", "0"], maxProcesses: 1, readRoots: [], cwd: process.cwd() });
-  const profile = wrapped[2];
-  assert.ok(profile.includes(`(literal "${NODE}")`), "executable must be granted as a literal file");
-  // Its install prefix must NOT appear as a granted subpath.
-  const prefix = NODE.replace(/\/[^/]+\/[^/]+$/, "");
-  assert.ok(!profile.includes(`(subpath "${prefix}")`), "executable install prefix must never be granted");
+  if (process.platform === "linux") {
+    assert.ok(wrapped.includes(LINUX_OCI_IMAGE), "OCI execution must name the digest-pinned image");
+    assert.ok(wrapped.includes("--read-only"));
+    assert.ok(wrapped.includes("ALL"));
+  } else {
+    const profile = wrapped[2];
+    assert.ok(profile.includes(`(literal "${NODE}")`), "executable must be granted as a literal file");
+    const prefix = NODE.replace(/\/[^/]+\/[^/]+$/, "");
+    assert.ok(!profile.includes(`(subpath "${prefix}")`), "executable install prefix must never be granted");
+  }
+  wrapped.cleanup?.();
 });
 
 test("a realistic subprocess-spawning test command cannot run under maxProcesses: 1", () => {
@@ -57,5 +65,8 @@ test("a realistic subprocess-spawning test command cannot run under maxProcesses
   // maxProcesses: 1 backend denies. This is a KNOWN LIMITATION, demonstrated
   // rather than papered over: such contracts keep pilot status blocked.
   const wrapped = isolateExecution({ executablePath: NODE, argvTail: ["--test"], maxProcesses: 1, readRoots: [], cwd: process.cwd() });
-  assert.ok(wrapped.some((a) => a.includes("(deny process-fork)")));
+  assert.ok(process.platform === "linux"
+    ? wrapped.includes("64") && wrapped.some((a) => a.includes("seccomp="))
+    : wrapped.some((a) => a.includes("(deny process-fork)")));
+  wrapped.cleanup?.();
 });

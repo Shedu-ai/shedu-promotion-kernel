@@ -57,7 +57,7 @@ test("a registered control whose runtime proof fails fails closure (not a string
   assert.ok(report.findings.some((f) => f.id === "sandbox-network-isolation" && f.reasonCode === "CONTROL_UNPROVEN"));
 });
 
-test("removing sandbox isolation makes a bind succeed — the runtime proof would catch it", () => {
+test("removing sandbox isolation makes a bind succeed — the runtime proof would catch it", { skip: process.platform !== "darwin" }, () => {
   // The real proof asserts EPERM on a sandboxed bind. If isolation were
   // weakened (e.g. the profile reverted to allow-by-default), the bind would
   // SUCCEED and the proof's EPERM assertion would fail — which is exactly the

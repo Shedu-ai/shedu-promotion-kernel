@@ -1,6 +1,6 @@
 {
   "name": "@shedu/promotion-kernel",
-  "version": "0.3.1-experimental",
+  "version": "0.4.0-experimental",
   "description": "Model-independent, evidence-bound promotion kernel for AI-generated software changes",
   "type": "module",
   "license": "Apache-2.0",
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "subject:probe": "node src/cli.mjs --subject-probe",
+    "sandbox:linux:pull": "node scripts/pull-linux-sandbox-image.mjs",
     "verify:sample-policy": "node scripts/verify-sample-policy.mjs",
     "test": "node --test"
   }

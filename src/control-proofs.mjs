@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
@@ -31,9 +31,14 @@ import { git as gitAuthority, gitAuthorityIdentity } from "./git-authority.mjs";
 
 const NODE = KERNEL_NODE_PATH;
 
-function sandboxedNode(script, { readRoots = [], cwd = process.cwd() } = {}) {
-  const wrapped = isolateExecution({ executablePath: NODE, argvTail: ["-e", script], maxProcesses: 1, readRoots, cwd });
-  return spawnSync(wrapped[0], wrapped.slice(1), { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 15000 });
+function sandboxedNode(script, { readRoots = [], cwd = process.cwd(), injectEnv = {} } = {}) {
+  const environment = { PATH: process.env.PATH ?? "", ...injectEnv };
+  const wrapped = isolateExecution({ executablePath: NODE, argvTail: ["-e", script], maxProcesses: 1, readRoots, cwd, environment });
+  try {
+    return spawnSync(wrapped[0], wrapped.slice(1), { encoding: "utf8", env: wrapped.spawnEnv ?? environment, timeout: 15000 });
+  } finally {
+    wrapped.cleanup?.();
+  }
 }
 
 function reduceFixture(results) {
@@ -54,14 +59,21 @@ export const CONTROL_PROOFS = {
     return { passed: r.status === 0 && /EPERM/.test(r.stdout), detail: r.stdout?.trim() };
   },
   "sandbox-read-isolation": () => {
-    const r = sandboxedNode('try{require("node:fs").readFileSync("/etc/hosts");process.exit(1)}catch(e){console.log(e.code);process.exit(0)}');
-    return { passed: r.status === 0 && /EPERM/.test(r.stdout), detail: r.stdout?.trim() };
+    const dir = mkdtempSync(join(tmpdir(), "shedu-proof-private-"));
+    const secret = join(dir, "secret");
+    writeFileSync(secret, "host-private");
+    try {
+      const r = sandboxedNode('try{require("node:fs").readFileSync(process.env.HOST_PRIVATE_PATH);process.exit(1)}catch(e){console.log(e.code);process.exit(0)}', { injectEnv: { HOST_PRIVATE_PATH: secret } });
+      return { passed: r.status === 0 && /EPERM|EACCES|ENOENT/.test(r.stdout), detail: r.stdout?.trim() };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   },
   "sandbox-write-isolation": () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "shedu-proof-")));
     try {
       const r = sandboxedNode('try{require("node:fs").writeFileSync("x","y");process.exit(1)}catch(e){console.log(e.code);process.exit(0)}', { cwd: dir });
-      return { passed: r.status === 0 && /EPERM/.test(r.stdout), detail: r.stdout?.trim() };
+      return { passed: r.status === 0 && /EPERM|EACCES|EROFS/.test(r.stdout), detail: r.stdout?.trim() };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

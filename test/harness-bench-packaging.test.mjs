@@ -43,7 +43,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
   // Build a self-contained committed copy of THIS tree so admission has a clean
   // frozen checkout, and an external verifier signs an attestation for it.
   const copy = realpathSync(mkdtempSync(join(tmpdir(), "shedu-benchpkg-")));
-  for (const dir of ["src", "registry", "packs", "schemas", "conformance"]) {
+  for (const dir of ["src", "registry", "packs", "schemas", "conformance", "security"]) {
     cpSync(join(kernelRoot, dir), join(copy, dir), { recursive: true });
   }
   cpSync(join(kernelRoot, "package.json"), join(copy, "package.json"));

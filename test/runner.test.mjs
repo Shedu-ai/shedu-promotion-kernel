@@ -119,8 +119,8 @@ test("the sandbox denies reads outside declared roots", () => {
     });
     assert.equal(exec.succeeded, true, exec.stderr.toString());
     const seen = JSON.parse(exec.stdout.toString());
-    assert.equal(seen.sib, "EPERM", "sibling temp file must be unreadable");
-    assert.equal(seen.cred, "EPERM", "home credential must be unreadable");
+    assert.match(seen.sib, /^(EPERM|EACCES|ENOENT)$/, "sibling temp file must be unreadable");
+    assert.match(seen.cred, /^(EPERM|EACCES|ENOENT)$/, "home credential must be unreadable");
   } finally {
     rmSync(homeCred, { force: true });
     rmSync(candDir, { recursive: true, force: true });
@@ -165,7 +165,7 @@ test("the sandbox makes the filesystem read-only for target commands", () => {
     ]
   });
   assert.equal(execution.succeeded, true, execution.stderr.toString());
-  assert.match(execution.stdout.toString(), /BLOCKED:EPERM/);
+  assert.match(execution.stdout.toString(), /BLOCKED:(EPERM|EACCES|EROFS)/);
 });
 
 test("the process ceiling is enforced: fork denial at 1, refusal above 1", () => {

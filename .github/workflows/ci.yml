@@ -1,0 +1,37 @@
+name: kernel-ci
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-native-sandbox
+            os: macos-14
+          - name: linux-pinned-oci-sandbox
+            os: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Materialize the immutable Linux sandbox image
+        if: runner.os == 'Linux'
+        run: npm run sandbox:linux:pull
+      - name: Full hostile and conformance suite
+        run: npm test
+      - name: Verify the executable sample policy
+        run: npm run verify:sample-policy
+      - name: Verify the honest public probe
+        run: npm run subject:probe
