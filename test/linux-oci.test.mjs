@@ -45,6 +45,7 @@ test("the Linux image authority is an immutable OCI digest, never a tag", () => 
 test("the bounded readiness artifact is executable exact JavaScript", () => {
   assert.ok(!LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("process.exit("));
   assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("process.exitCode="));
+  assert.ok(LINUX_BOUNDED_CHILD_PROBE_SCRIPT.includes("!r.error"));
   const result = spawnSync(process.execPath, ["-e", LINUX_BOUNDED_CHILD_PROBE_SCRIPT], {
     encoding: "utf8",
     timeout: 5_000
@@ -225,6 +226,10 @@ test("the bounded seccomp authority allows ordinary children but not namespaces 
   const socketpair = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "socketpair");
   assert.equal(socketpair.action, "SCMP_ACT_ALLOW");
   assert.deepEqual(socketpair.args, [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }]);
+  const shutdown = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "shutdown");
+  assert.equal(shutdown.action, "SCMP_ACT_ALLOW");
+  assert.equal(shutdown.args, undefined);
+  assert.match(shutdown.comment, /cannot create or connect/);
   const clone = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "clone");
   assert.equal(clone.args[0].op, "SCMP_CMP_MASKED_EQ");
   assert.ok(clone.args[0].value > 0, "value is the namespace-bit mask");

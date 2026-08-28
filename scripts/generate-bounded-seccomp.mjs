@@ -29,6 +29,11 @@ const namespaceMask =
 
 rewritten.push(
   {
+    names: ["shutdown"],
+    action: "SCMP_ACT_ALLOW",
+    comment: "Allow libuv to half-close an existing AF_UNIX child-process transport; shutdown cannot create or connect a socket."
+  },
+  {
     names: ["socketpair"],
     action: "SCMP_ACT_ALLOW",
     args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }],

@@ -116,9 +116,11 @@ continue to mean exactly one process; they are not reinterpreted as `@2`.
 2. A separate checked-in, hash-bound bounded-tree seccomp profile admits only
    the process syscalls needed by the conformance workloads. Namespace creation,
    `unshare`, `setns`, privileged operations, Internet socket creation, and
-   privilege gain remain denied. Only `socketpair(AF_UNIX, ...)`, required by
-   the pinned Node/libuv child-launch transport, is admitted; all Internet
-   socket families and network connection/listen operations remain denied.
+   privilege gain remain denied. Only `socketpair(AF_UNIX, ...)` plus
+   `shutdown()`, required for the pinned Node/libuv child-launch and synchronous
+   evidence transport, are admitted. `shutdown()` can only half-close an
+   existing descriptor; it cannot create or connect one. All Internet socket
+   families and network connection/listen operations remain denied.
 3. The OCI invocation applies the compiled `maxTasks` through cgroup
    `pids.max`. Absence, rounding, substitution, or inability to read back the
    applied limit produces `SANDBOX_UNAVAILABLE`.
