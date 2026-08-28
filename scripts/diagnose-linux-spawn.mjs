@@ -17,7 +17,7 @@ const docker = "/usr/bin/docker";
 const root = mkdtempSync(join(tmpdir(), "shedu-spawn-diagnostic-"));
 const base = JSON.parse(readFileSync(LINUX_OCI_BOUNDED_SECCOMP_PATH, "utf8"));
 
-function policy({ clone = false, clone3 = false, groups = false, unixIpc = false, processVm = false, allRemoved = false }) {
+function policy({ clone = false, clone3 = false, groups = false, unixSocket = false, unixSocketpair = false, unixOps = false, processVm = false, allRemoved = false }) {
   const next = structuredClone(base);
   if (clone) {
     next.syscalls = next.syscalls.filter((rule) => !rule.names.includes("clone"));
@@ -30,12 +30,16 @@ function policy({ clone = false, clone3 = false, groups = false, unixIpc = false
   if (groups) {
     next.syscalls.push({ names: ["setpgid", "setsid"], action: "SCMP_ACT_ALLOW" });
   }
-  if (unixIpc) {
-    next.syscalls.push(
-      { names: ["socketpair"], action: "SCMP_ACT_ALLOW", args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }] },
-      { names: ["socket"], action: "SCMP_ACT_ALLOW", args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }] }
-    );
-  }
+  if (unixSocketpair) next.syscalls.push({ names: ["socketpair"], action: "SCMP_ACT_ALLOW", args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }] });
+  if (unixSocket) next.syscalls.push({ names: ["socket"], action: "SCMP_ACT_ALLOW", args: [{ index: 0, value: 1, op: "SCMP_CMP_EQ" }] });
+  if (unixOps) next.syscalls.push({
+    names: [
+      "accept", "accept4", "bind", "connect", "getpeername", "getsockname", "getsockopt", "listen",
+      "recv", "recvfrom", "recvmmsg", "recvmmsg_time64", "recvmsg", "send", "sendmmsg", "sendmsg",
+      "sendto", "setsockopt", "shutdown"
+    ],
+    action: "SCMP_ACT_ALLOW"
+  });
   if (processVm) {
     next.syscalls.push({ names: ["process_vm_readv", "process_vm_writev", "ptrace"], action: "SCMP_ACT_ALLOW" });
   }
@@ -59,7 +63,10 @@ const variants = [
   ["allow-clone", policy({ clone: true })],
   ["allow-clone3", policy({ clone3: true })],
   ["allow-clone-and-clone3", policy({ clone: true, clone3: true })],
-  ["allow-unix-ipc", policy({ unixIpc: true })],
+  ["allow-unix-socket", policy({ unixSocket: true })],
+  ["allow-unix-socketpair", policy({ unixSocketpair: true })],
+  ["allow-unix-socket-and-pair", policy({ unixSocket: true, unixSocketpair: true })],
+  ["allow-unix-ipc-complete", policy({ unixSocket: true, unixSocketpair: true, unixOps: true })],
   ["allow-process-vm", policy({ processVm: true })],
   ["allow-clone-and-groups", policy({ clone: true, groups: true })],
   ["allow-all-removed", policy({ allRemoved: true })],
@@ -67,9 +74,11 @@ const variants = [
 ];
 
 const probe = [
-  "const {spawnSync}=require('node:child_process');",
-  "const r=spawnSync(process.execPath,['-e','process.exit(0)']);",
-  "process.stdout.write(JSON.stringify({status:r.status,signal:r.signal,error:r.error&&{code:r.error.code,errno:r.error.errno,syscall:r.error.syscall,path:r.error.path}}));"
+  "const {spawn}=require('node:child_process');",
+  "const r=spawn(process.execPath,['-e','process.exit(0)'],{stdio:['ignore','pipe','pipe']});",
+  "let finished=false;",
+  "r.once('error',e=>{if(finished)return;finished=true;process.stdout.write(JSON.stringify({event:'error',error:{code:e.code,errno:e.errno,syscall:e.syscall,path:e.path}}));});",
+  "r.once('close',(status,signal)=>{if(finished)return;finished=true;process.stdout.write(JSON.stringify({event:'close',status,signal}));});"
 ].join("");
 
 try {
