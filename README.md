@@ -4,7 +4,7 @@ Shedu Promotion Kernel is a model-independent approval gate for AI-generated cod
 
 > Did this exact, immutable candidate satisfy its authorized requirements and remain within its permitted scope?
 
-The kernel does not generate code, choose a solution, or decide what should be built. Coding agents—including Codex, Claude Code, or local models—work outside the kernel. They submit completed candidates for mechanical evaluation.
+The kernel does not generate code, choose a solution, or decide what should be built. Coding agents— (ie Grok build, Codex, Claude Code, or local models)—work outside the kernel. They submit completed candidates for mechanical evaluation.
 
 ## What the kernel checks
 
