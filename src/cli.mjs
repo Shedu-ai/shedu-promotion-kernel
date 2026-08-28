@@ -4,7 +4,7 @@ import process from "node:process";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateDocument } from "./contracts.mjs";
+import { validateVersionedDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { beginSupervisedOperation, evaluateSupervised, publishedReceiptPath } from "./supervisor.mjs";
@@ -12,6 +12,7 @@ import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
 import { isAdmitted, committedAdmission } from "./admission.mjs";
 import { readBoundedRegularFile } from "./bounded-file.mjs";
+import { executionPreflight } from "./execution-preflight.mjs";
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -38,7 +39,8 @@ export const EXPERIMENTAL_CAPABILITIES = Object.freeze([
   "receipt-verification@1",
   "orphan-census@1",
   "prior-art-admission@1",
-  "orphan-closure@1"
+  "orphan-closure@1",
+  "bounded-process-tree@1"
 ]);
 
 // The FOUNDATION_ONLY → EXPERIMENTAL transition is never a mutable status
@@ -95,9 +97,10 @@ function runCompile(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
     ]);
   }
-  const contract = validateDocument("work-contract@1", bytes);
+  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], bytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
+  const boundedContracts = workContract.schemaVersion === "work-contract@2";
   const repoDir = flags.get("--repo");
   const baseCommit = workContract.target.baseCommit;
 
@@ -109,7 +112,7 @@ function runCompile(argv) {
     baseCommit,
     path: workContract.policyProfile.path,
     expectedDigest: workContract.policyProfile.digest,
-    kind: "policy-profile@1"
+    kind: boundedContracts ? "policy-profile@2" : "policy-profile@1"
   });
   if (!profile.ok) return emitError(profile.reasonCode, profile.errors ?? [profile]);
 
@@ -133,7 +136,7 @@ function runCompile(argv) {
       baseCommit,
       path: selection.path,
       expectedDigest: selection.digest,
-      kind: "policy-pack@1"
+      kind: boundedContracts ? "policy-pack@2" : "policy-pack@1"
     });
     if (!pack.ok) return emitError(pack.reasonCode, pack.errors ?? [pack]);
     packs.push({ value: pack.value, digest: pack.digest });
@@ -195,7 +198,7 @@ function runEvaluate(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${contractPath}` }
     ]);
   }
-  const contract = validateDocument("work-contract@1", contractBytes);
+  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const outDir = flags.get("--out");
 
@@ -301,6 +304,11 @@ export function main(argv = process.argv.slice(2)) {
   if (argv[0] === "evaluate") return runEvaluate(argv.slice(1));
   if (argv[0] === "verify-receipt") return runVerifyReceipt(argv.slice(1));
   if (argv[0] === "conformance") return runConformanceCommand(argv.slice(1));
+  if (argv.length === 1 && argv[0] === "execution-preflight") {
+    const result = executionPreflight();
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.presets.some((preset) => preset.available) ? 0 : 2;
+  }
 
   process.stderr.write(`${JSON.stringify({
     schemaVersion: "promotion-kernel-error@1",

@@ -121,6 +121,8 @@ test("pack argv and env allowlists reject credential names", () => {
     const leakyEnv = makePack({ checks: [makeCheck({ envAllowlist: [name] })] });
     assert.equal(firstReason(validateValue("policy-pack@1", leakyEnv)), "SECRET_BEARING_FIELD", name);
   }
+  const reservedEnv = makePack({ checks: [makeCheck({ envAllowlist: ["SHEDU_INTERNAL_MAX_TASKS"] })] });
+  assert.equal(firstReason(validateValue("policy-pack@1", reservedEnv)), "SCHEMA_VIOLATION");
   const benignEnv = makePack({ checks: [makeCheck({ envAllowlist: ["PATH", "NODE_ENV", "CI", "SSH_KEY_PATH"] })] });
   assert.equal(validateValue("policy-pack@1", benignEnv).ok, true);
 });

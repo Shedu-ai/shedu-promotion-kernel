@@ -210,10 +210,14 @@ test("the environment is constructed, not inherited", () => {
   assert.equal(env.ALLOWED_SETTING, "visible");
 });
 
-test("secret-named environment names cannot be allowlisted at the runner either", () => {
-  for (const name of ["ANTHROPIC_API_KEY", "GITHUB_TOKEN", "CLIENT_SECRET", "not-a-name"]) {
+test("secret-named and supervisor-reserved environment names cannot be allowlisted at the runner", () => {
+  for (const name of ["ANTHROPIC_API_KEY", "GITHUB_TOKEN", "CLIENT_SECRET", "SHEDU_INTERNAL_MAX_TASKS", "not-a-name"]) {
     assert.throws(() => buildCleanEnvironment({ envAllowlist: [name] }), /not an allowlistable name/);
   }
+  assert.throws(
+    () => buildCleanEnvironment({ injectEnv: { SHEDU_INTERNAL_EXECUTION_CLASS: "SINGLE_PROCESS" } }),
+    /invalid/
+  );
 });
 
 test("a child process observes only the clean environment", () => {

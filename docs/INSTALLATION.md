@@ -15,7 +15,9 @@ does not silently follow a moving branch.
   Linux with Docker Engine and the kernel's immutable OCI image installed by digest.
   Other platforms fail closed with `SANDBOX_UNAVAILABLE`.
 - Target commands may use only the kernel's exact Node interpreter, run without a shell,
-  receive no network access, and cannot fork (`maxProcesses` is exactly `1`).
+  and receive no network access. Existing `@1` contracts and the `STRICT` preset deny
+  process creation. Versioned `@2` authorities may request `STANDARD_TEST`, whose exact
+  process-and-thread task ceiling is enforced only by the pinned Linux OCI backend.
 - The public checkout intentionally reports `FOUNDATION_ONLY`. `evaluate` remains blocked
   until a separate trusted attestor supplies a signed attestation, its pinned Ed25519
   public key, and the exact attested kernel commit. Installation alone cannot elevate it.
@@ -58,6 +60,18 @@ daemon override, non-Linux daemon, failed isolation probe, or image identity
 drift produces `SANDBOX_UNAVAILABLE`; evaluation never downloads or substitutes
 an image on its own.
 
+Confirm the live execution route without invoking a provider or running target code:
+
+```sh
+node src/cli.mjs execution-preflight
+```
+
+The machine response exposes two named presets. `STRICT` is available on a conforming
+macOS or Linux worker. `STANDARD_TEST` is available only after the Linux worker proves
+the bounded child-process path and a planted `pids.max` event. Agents may use the result
+to route an immutable run; they cannot pass a process count or backend override to
+`evaluate`.
+
 ## Option B: pinned target-repository dependency
 
 From the repository to be governed:
@@ -91,7 +105,7 @@ profile, validator, exact digest workflow, and mechanical verification.
 
 ## Compile a target contract
 
-A real `work-contract@1` must contain the target's full base and candidate object IDs,
+A real `work-contract@1` or `work-contract@2` must contain the target's full base and candidate object IDs,
 exact path scope, exact validation-command argument arrays, and the raw-byte SHA-256
 digest of `.shedu/policy/profile.json`. It must point to policy authority already committed
 at the declared base.
@@ -102,10 +116,33 @@ node /absolute/path/to/shedu-promotion-kernel/src/cli.mjs compile \
   --repo /absolute/path/to/target-repository
 ```
 
-Compilation emits one canonical `compiled-policy-plan@1` document on stdout or one
+Compilation emits the corresponding canonical `compiled-policy-plan@1` or
+`compiled-policy-plan@2` document on stdout or one
 machine-readable blocking error on stderr. The sample verifier constructs a disposable
 real Git repository and exercises this exact CLI path; use it as the executable reference
 instead of copying placeholder commit IDs into production.
+
+## Bounded Node test suites
+
+Use `@2` only when a base-owned target validator or validation command genuinely needs
+child processes. The three independent authorities must all admit the same requirement:
+
+```json
+{"class":"BOUNDED_PROCESS_TREE","maxTasks":128}
+```
+
+That closed value is the machine expansion of the shipped `STANDARD_TEST` preset. It is
+declared as `validator.executionRequirement` in `policy-pack@2`, as
+`resourceCeilings.executionCeiling` in `work-contract@2`, and as `executionPolicy` in
+`policy-profile@2`. Compilation takes the exact pack requirement and rejects it if either
+ceiling is lower. Neither a prompt, retry, environment variable, CLI flag, nor candidate
+edit can raise it. The compiled plan additionally binds `bounded-process-tree@1` and the
+portable digest of the pinned image, bounded seccomp policy, and trusted supervisor.
+
+`maxTasks` is intentionally not called `maxProcesses`: Linux cgroups count processes and
+threads together. If Linux OCI is unavailable, the same contract returns
+`EXECUTION_BACKEND_REQUIRED` or `SANDBOX_UNAVAILABLE`; it never falls back to a weaker
+native mode.
 
 ## Admitted evaluation
 

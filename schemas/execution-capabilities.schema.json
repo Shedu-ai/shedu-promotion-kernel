@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/execution-capabilities.schema.json",
+  "title": "execution-capabilities@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "platform", "presets"],
+  "properties": {
+    "schemaVersion": {"const": "execution-capabilities@1"},
+    "platform": {"enum": ["darwin", "linux", "unsupported"]},
+    "presets": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "class", "maxTasks", "capabilityId", "available", "backend", "reasonCode"],
+        "properties": {
+          "name": {"enum": ["STRICT", "STANDARD_TEST"]},
+          "class": {"enum": ["SINGLE_PROCESS", "BOUNDED_PROCESS_TREE"]},
+          "maxTasks": {"type": "integer", "minimum": 8, "maximum": 512},
+          "capabilityId": {"enum": ["single-process@1", "bounded-process-tree@1"]},
+          "available": {"type": "boolean"},
+          "backend": {
+            "oneOf": [
+              {"type": "null"},
+              {"enum": ["darwin-sandbox-exec", "linux-oci"]}
+            ]
+          },
+          "reasonCode": {
+            "oneOf": [
+              {"type": "null"},
+              {"enum": ["SANDBOX_UNAVAILABLE", "EXECUTION_BACKEND_REQUIRED"]}
+            ]
+          }
+        }
+      }
+    }
+  }
+}

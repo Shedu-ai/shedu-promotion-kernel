@@ -3,6 +3,12 @@ import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json
 import { validateDocument, validateValue } from "./contracts.mjs";
 import { knownBuiltinValidatorIds } from "./builtin-validators.mjs";
 import { isResolvableTargetExecutable } from "./validator-digest.mjs";
+import {
+  executionCapabilityId,
+  executionRequirementFor,
+  executionRequirementForLegacyContract
+} from "./execution-policy.mjs";
+import { portableLinuxExecutionAuthority } from "./oci-runtime.mjs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -50,20 +56,32 @@ export function compilePlan({
   builtinValidatorIds = knownBuiltinValidatorIds(),
   mandatoryPacks = mandatoryKernelPacks()
 }) {
+  const contractVersion = workContract?.schemaVersion;
+  const boundedContracts = contractVersion === "work-contract@2";
+  const workContractKind = boundedContracts ? "work-contract@2" : "work-contract@1";
+  const profileKind = boundedContracts ? "policy-profile@2" : "policy-profile@1";
   for (const [kind, value] of [
-    ["work-contract@1", workContract],
-    ["policy-profile@1", profile]
+    [workContractKind, workContract],
+    [profileKind, profile]
   ]) {
     const r = validateValue(kind, value);
     if (!r.ok) return { ok: false, errors: r.errors };
   }
   for (const p of packs) {
-    const r = validateValue("policy-pack@1", p.value);
+    const packKind = boundedContracts ? "policy-pack@2" : "policy-pack@1";
+    const r = validateValue(packKind, p.value);
     if (!r.ok) return { ok: false, errors: r.errors };
   }
 
   const errors = [];
   const fail = (reasonCode, message) => errors.push({ reasonCode, message });
+
+  if (!boundedContracts && contractVersion !== "work-contract@1") {
+    fail("SCHEMA_VIOLATION", `unsupported work-contract version ${JSON.stringify(contractVersion)}`);
+  }
+  if (profile?.schemaVersion !== profileKind) {
+    fail("SCHEMA_VIOLATION", `${workContractKind} requires ${profileKind}`);
+  }
 
   if (workContract.policyProfile.digest !== profileDigest) {
     fail("AUTHORITY_DIGEST_MISMATCH", `work contract pins profile digest ${workContract.policyProfile.digest}, received ${profileDigest}`);
@@ -201,6 +219,32 @@ export function compilePlan({
     }
   }
 
+  const compileExecution = (requirement, location) => {
+    if (!boundedContracts) return executionRequirementForLegacyContract();
+    const resolved = executionRequirementFor({
+      requirement,
+      contractCeiling: workContract.resourceCeilings.executionCeiling,
+      profileCeiling: profile.executionPolicy
+    });
+    if (!resolved.ok) {
+      fail(resolved.reasonCode, `${location}: ${resolved.message}`);
+      return null;
+    }
+    const portable = resolved.value.class === "BOUNDED_PROCESS_TREE"
+      ? portableLinuxExecutionAuthority(resolved.value.class)
+      : { capabilityId: executionCapabilityId(resolved.value.class), portableAuthorityDigest: null };
+    return { ...resolved.value, ...portable };
+  };
+
+  const compiledValidationCommands = boundedContracts
+    ? workContract.validationCommands.map((command) => ({
+        commandId: command.commandId,
+        phase: command.phase,
+        argv: [...command.argv],
+        execution: compileExecution(command.executionRequirement, `validation command ${command.commandId}`)
+      }))
+    : null;
+
   const strengthened = new Set(profile.strengthen);
   for (const checkId of strengthened) {
     const check = checkById.get(checkId);
@@ -234,7 +278,14 @@ export function compilePlan({
         packVersion: p.value.version,
         phase: check.phase,
         effect: strengthened.has(check.checkId) ? "BLOCKING" : check.effect,
-        validator: check.validator,
+        validator:
+          boundedContracts && check.validator.kind === "TARGET_COMMAND"
+            ? {
+                kind: check.validator.kind,
+                argv: [...check.validator.argv],
+                inputManifest: [...check.validator.inputManifest]
+              }
+            : check.validator,
         inputs: check.inputs,
         outputSchemaId: check.outputSchemaId,
         timeoutSeconds: check.timeoutSeconds,
@@ -242,7 +293,15 @@ export function compilePlan({
         filesystem: check.filesystem,
         envAllowlist: check.envAllowlist,
         resultConsumer: check.resultConsumer,
-        dependsOn: [...dependsOn].sort()
+        dependsOn: [...dependsOn].sort(),
+        ...(boundedContracts
+          ? {
+              execution:
+                check.validator.kind === "TARGET_COMMAND"
+                  ? compileExecution(check.validator.executionRequirement, `check ${check.checkId}`)
+                  : null
+            }
+          : {})
       });
     }
   }
@@ -254,7 +313,7 @@ export function compilePlan({
   );
 
   const plan = {
-    schemaVersion: "compiled-policy-plan@1",
+    schemaVersion: boundedContracts ? "compiled-policy-plan@2" : "compiled-policy-plan@1",
     kernelRelease: KERNEL_RELEASE,
     repositoryId: workContract.target.repositoryId,
     baseCommit: workContract.target.baseCommit,
@@ -272,10 +331,20 @@ export function compilePlan({
         ...profile.packs.map((s) => ({ packId: s.packId, version: s.version, digest: s.digest }))
       ].sort((a, b) => (a.packId < b.packId ? -1 : 1))
     },
-    checks: planChecks
+    checks: planChecks,
+    ...(boundedContracts
+      ? {
+          executionPolicy: {
+            contractCeiling: { ...workContract.resourceCeilings.executionCeiling },
+            profileCeiling: { ...profile.executionPolicy }
+          },
+          validationCommands: compiledValidationCommands
+        }
+      : {})
   };
 
-  const planCheck = validateValue("compiled-policy-plan@1", plan);
+  if (errors.length > 0) return { ok: false, errors };
+  const planCheck = validateValue(boundedContracts ? "compiled-policy-plan@2" : "compiled-policy-plan@1", plan);
   if (!planCheck.ok) {
     throw new Error(`compiler produced an invalid plan: ${JSON.stringify(planCheck.errors)}`);
   }

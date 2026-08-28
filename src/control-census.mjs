@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument } from "./contracts.mjs";
+import { validateDocument, validateVersionedDocument } from "./contracts.mjs";
 import { createControlLedger } from "./control-runtime.mjs";
 import { CONTROL_PROOFS } from "./control-proofs.mjs";
 import { verifyReceipt } from "./receipt.mjs";
@@ -125,7 +125,7 @@ export function runControlCensus({ srcDir, registry, proofs = CONTROL_PROOFS, pr
     let receiptDoc;
     try {
       verified = verifyReceipt({ receiptBytes, planBytes, evidenceDir });
-      receiptDoc = validateDocument("promotion-receipt@1", receiptBytes);
+      receiptDoc = validateVersionedDocument(["promotion-receipt@1", "promotion-receipt@2"], receiptBytes);
     } catch {
       verified = { ok: false };
       receiptDoc = { ok: false };

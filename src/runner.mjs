@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { digestOfBytes } from "./canonical-json.mjs";
-import { isSecretEnvName, validateValue } from "./contracts.mjs";
+import { isReservedInternalEnvName, isSecretEnvName, validateValue } from "./contracts.mjs";
 import { isolateExecution } from "./sandbox.mjs";
+import { isExecutionRequirement } from "./execution-policy.mjs";
 import { kernelToolchain, ToolchainError } from "./toolchain.mjs";
 
 // Control point: output ceiling is enforced here by clamping captured bytes.
@@ -24,13 +25,13 @@ const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 export function buildCleanEnvironment({ envAllowlist = [], injectEnv = {}, hostEnv = process.env } = {}) {
   const env = { PATH: hostEnv.PATH ?? "" };
   for (const name of envAllowlist) {
-    if (!ENV_NAME_RE.test(name) || isSecretEnvName(name)) {
+    if (!ENV_NAME_RE.test(name) || isSecretEnvName(name) || isReservedInternalEnvName(name)) {
       throw new Error(`environment name ${JSON.stringify(name)} is not an allowlistable name`);
     }
     if (Object.hasOwn(hostEnv, name)) env[name] = hostEnv[name];
   }
   for (const [name, value] of Object.entries(injectEnv)) {
-    if (!ENV_NAME_RE.test(name)) {
+    if (!ENV_NAME_RE.test(name) || isReservedInternalEnvName(name)) {
       throw new Error(`injected environment name ${JSON.stringify(name)} is invalid`);
     }
     env[name] = value;
@@ -56,6 +57,7 @@ export function runTargetCommand({
   timeoutMs,
   maxOutputBytes,
   maxProcesses,
+  executionRequirement = null,
   readRoots = [],
   readFiles = [],
   toolchain = kernelToolchain()
@@ -68,6 +70,9 @@ export function runTargetCommand({
   }
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) {
     throw new Error("maxOutputBytes must be a positive integer");
+  }
+  if (executionRequirement !== null && !isExecutionRequirement(executionRequirement)) {
+    throw new Error("executionRequirement must be a closed execution requirement");
   }
 
   // Resolve the executable through the closed toolchain and verify its
@@ -102,12 +107,16 @@ export function runTargetCommand({
     executablePath: resolved.path,
     argvTail: argv.slice(1),
     maxProcesses,
+    execution: executionRequirement,
+    maxOutputBytes,
     readRoots: realReadRoots,
     readFiles: realReadFiles,
     cwd: realCwd,
     environment: env
   });
   let spawned;
+  let resourceReport = null;
+  let supervisorParseFailed = null;
   try {
     spawned = spawnSync(isolated[0], isolated.slice(1), {
       cwd: realCwd,
@@ -116,9 +125,26 @@ export function runTargetCommand({
       windowsHide: true,
       timeout: timeoutMs,
       killSignal: "SIGKILL",
-      maxBuffer: maxOutputBytes,
+      maxBuffer: maxOutputBytes + isolated.maxBufferOverhead,
       encoding: "buffer"
     });
+    if (isolated.parseSpawnResult && !spawned.error && spawned.status === 0) {
+      try {
+        const parsed = isolated.parseSpawnResult(spawned.stdout);
+        spawned.stdout = parsed.stdout;
+        resourceReport = parsed.resourceReport;
+        if (
+          resourceReport.class !== executionRequirement.class ||
+          resourceReport.maxTasks !== executionRequirement.maxTasks
+        ) {
+          throw new Error("bounded supervisor report does not match the compiled runtime requirement");
+        }
+        spawned.status = resourceReport.exitCode;
+        spawned.signal = resourceReport.signal;
+      } catch (error) {
+        supervisorParseFailed = error;
+      }
+    }
   } finally {
     isolated.cleanup?.();
   }
@@ -132,10 +158,14 @@ export function runTargetCommand({
   };
   const stdout = clamp(spawned.stdout);
   const stderr = clamp(spawned.stderr);
-  const overflowed = spawned.error?.code === "ENOBUFS" || stdout.clamped || stderr.clamped;
-  const spawnFailed = spawned.error !== undefined && !timedOut && spawned.error.code !== "ENOBUFS";
+  const overflowed = spawned.error?.code === "ENOBUFS" || stdout.clamped || stderr.clamped || resourceReport?.outputExceeded === true;
+  const taskBudgetExceeded = resourceReport?.limitFired === true;
+  const spawnFailed =
+    supervisorParseFailed !== null ||
+    (spawned.error !== undefined && !timedOut && spawned.error.code !== "ENOBUFS") ||
+    (isolated.parseSpawnResult !== null && resourceReport === null && !timedOut && spawned.error?.code !== "ENOBUFS");
   const report = {
-    schemaVersion: "command-report@1",
+    schemaVersion: executionRequirement === null ? "command-report@1" : "command-report@2",
     commandId,
     phase,
     argv: [...argv],
@@ -144,9 +174,23 @@ export function runTargetCommand({
     signal: spawned.signal ?? null,
     timedOut,
     stdout: streamReport(stdout.bytes, overflowed),
-    stderr: streamReport(stderr.bytes, overflowed)
+    stderr: streamReport(stderr.bytes, overflowed),
+    ...(executionRequirement === null
+      ? {}
+      : {
+          execution: {
+            class: executionRequirement.class,
+            maxTasks: executionRequirement.maxTasks,
+            capabilityId: isolated.capabilityId,
+            portableAuthorityDigest: isolated.portableAuthorityDigest,
+            backend: isolated.backend,
+            backendAuthorityDigest: isolated.backendAuthorityDigest,
+            limitFired: taskBudgetExceeded,
+            limitEvents: resourceReport?.limitEvents ?? 0
+          }
+        })
   };
-  const validated = validateValue("command-report@1", report);
+  const validated = validateValue(executionRequirement === null ? "command-report@1" : "command-report@2", report);
   if (!validated.ok) {
     throw new Error(`runner produced an invalid command report: ${JSON.stringify(validated.errors)}`);
   }
@@ -156,7 +200,9 @@ export function runTargetCommand({
     stderr: stderr.bytes,
     spawnFailed,
     toolchainRejected: false,
-    spawnError: spawnFailed ? String(spawned.error) : null,
-    succeeded: !spawnFailed && !timedOut && !overflowed && spawned.status === 0
+    spawnError: spawnFailed ? String(supervisorParseFailed ?? spawned.error ?? "bounded supervisor failed") : null,
+    taskBudgetExceeded,
+    resourceReport,
+    succeeded: !spawnFailed && !timedOut && !overflowed && !taskBudgetExceeded && spawned.status === 0
   };
 }

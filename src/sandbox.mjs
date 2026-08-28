@@ -6,13 +6,19 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import process from "node:process";
 import {
   LINUX_OCI_IMAGE,
+  LINUX_OCI_BOUNDED_SECCOMP_PATH,
   LINUX_OCI_NODE_PATH,
   LINUX_OCI_SECCOMP_PATH,
+  LINUX_OCI_SUPERVISOR_CONTAINER_PATH,
+  LINUX_OCI_SUPERVISOR_PATH,
   linuxOciAuthority,
   ociHostEnvironment,
+  portableLinuxExecutionAuthority,
   removeLinuxOciContainer,
   runDockerAuthority
 } from "./oci-runtime.mjs";
+import { EXECUTION_PRESETS, executionCapabilityId, isExecutionRequirement } from "./execution-policy.mjs";
+import { SUPERVISOR_REPORT_MAGIC } from "./process-tree-supervisor.mjs";
 
 // Control points this module implements (discovered mechanically by the
 // control-surface census from the filesystem, independently of any registry).
@@ -41,8 +47,9 @@ export const CONTROL_POINTS = Object.freeze([
 //
 //   linux: a digest-pinned OCI image under a source-closed Docker runtime,
 //   with no network namespace, read-only root and bind mounts, all Linux
-//   capabilities dropped, no-new-privileges, a checked-in seccomp profile,
-//   and process creation denied while Node's existing threads remain usable.
+//   capabilities dropped, no-new-privileges, and a checked-in seccomp
+//   profile. SINGLE_PROCESS denies child creation. BOUNDED_PROCESS_TREE uses
+//   a separate hash-bound policy plus exact cgroup pids.max enforcement.
 //
 // The backend is probed once per process by demonstrating the denials and
 // inspecting the effective kernel security state. If isolation cannot be
@@ -53,6 +60,14 @@ export class SandboxUnavailableError extends Error {
     super(message);
     this.name = "SandboxUnavailableError";
     this.reasonCode = "SANDBOX_UNAVAILABLE";
+  }
+}
+
+export class ExecutionBackendRequiredError extends SandboxUnavailableError {
+  constructor(message) {
+    super(message);
+    this.name = "ExecutionBackendRequiredError";
+    this.reasonCode = "EXECUTION_BACKEND_REQUIRED";
   }
 }
 
@@ -113,6 +128,7 @@ function buildProfile({ singleProcess, executablePath, readRoots, fileLiterals =
 }
 
 let probed = null;
+let boundedProbed = null;
 
 function probeBackend(probeRunner = defaultProbeRunner) {
   if (probeRunner !== defaultProbeRunner) return probeRunner();
@@ -201,14 +217,51 @@ function createReadProjection(cwd, readFiles) {
   }
 }
 
-function attachInvocation(argv, { spawnEnv, cleanup, backend, containerName = null }) {
+function attachInvocation(argv, { spawnEnv, cleanup, backend, backendAuthorityDigest = null, portableAuthorityDigest = null, capabilityId, containerName = null, execution, parseSpawnResult = null, maxBufferOverhead = 0 }) {
   Object.defineProperties(argv, {
     spawnEnv: { value: spawnEnv, enumerable: false },
     cleanup: { value: cleanup, enumerable: false, configurable: true },
     backend: { value: backend, enumerable: false },
-    containerName: { value: containerName, enumerable: false }
+    backendAuthorityDigest: { value: backendAuthorityDigest, enumerable: false },
+    portableAuthorityDigest: { value: portableAuthorityDigest, enumerable: false },
+    capabilityId: { value: capabilityId, enumerable: false },
+    containerName: { value: containerName, enumerable: false },
+    execution: { value: execution, enumerable: false },
+    parseSpawnResult: { value: parseSpawnResult, enumerable: false },
+    maxBufferOverhead: { value: maxBufferOverhead, enumerable: false }
   });
   return argv;
+}
+
+export function parseLinuxSupervisorOutput(stdout) {
+  const bytes = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout ?? "");
+  const magic = Buffer.from(SUPERVISOR_REPORT_MAGIC, "utf8");
+  const offset = bytes.lastIndexOf(magic);
+  if (offset < 0) throw new SandboxUnavailableError("bounded supervisor emitted no resource report");
+  const encoded = bytes.subarray(offset + magic.length).toString("utf8");
+  if (!/^[A-Za-z0-9_-]+\n$/.test(encoded)) {
+    throw new SandboxUnavailableError("bounded supervisor resource report framing is malformed");
+  }
+  let report;
+  try {
+    report = JSON.parse(Buffer.from(encoded.slice(0, -1), "base64url").toString("utf8"));
+  } catch {
+    throw new SandboxUnavailableError("bounded supervisor resource report is not JSON");
+  }
+  if (
+    report?.schemaVersion !== "process-resource-report@1" ||
+    report.class !== "BOUNDED_PROCESS_TREE" ||
+    !Number.isSafeInteger(report.maxTasks) ||
+    typeof report.limitFired !== "boolean" ||
+    !Number.isSafeInteger(report.limitEvents) ||
+    report.limitEvents < 0 ||
+    typeof report.outputExceeded !== "boolean" ||
+    !(report.exitCode === null || Number.isSafeInteger(report.exitCode)) ||
+    !(report.signal === null || typeof report.signal === "string")
+  ) {
+    throw new SandboxUnavailableError("bounded supervisor resource report has an invalid shape");
+  }
+  return { stdout: bytes.subarray(0, offset), resourceReport: report };
 }
 
 export function buildLinuxOciInvocation({
@@ -219,6 +272,8 @@ export function buildLinuxOciInvocation({
   readFiles,
   cwd,
   environment,
+  execution = EXECUTION_PRESETS.STRICT,
+  maxOutputBytes = 8 * 1024 * 1024,
   projectionDir = null,
   containerName = `shedu-kernel-${randomBytes(12).toString("hex")}`
 }) {
@@ -227,6 +282,14 @@ export function buildLinuxOciInvocation({
   }
   if (authority.image.reference !== LINUX_OCI_IMAGE) {
     throw new SandboxUnavailableError("Linux OCI authority does not name the pinned image");
+  }
+  if (!isExecutionRequirement(execution)) {
+    throw new SandboxUnavailableError("Linux OCI execution requires a closed execution authority");
+  }
+  const bounded = execution.class === "BOUNDED_PROCESS_TREE";
+  const portable = portableLinuxExecutionAuthority(execution.class);
+  if (bounded && (!authority.seccompDigests?.bounded || !authority.supervisorDigest)) {
+    throw new SandboxUnavailableError("Linux OCI authority does not bind the bounded seccomp policy and supervisor");
   }
   validateLinuxMountPath(cwd, "working directory");
   const roots = [...new Set(readRoots.map((path) => validateLinuxMountPath(path, "read root")))].sort();
@@ -241,8 +304,8 @@ export function buildLinuxOciInvocation({
     "--read-only",
     "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges:true",
-    "--security-opt", `seccomp=${LINUX_OCI_SECCOMP_PATH}`,
-    "--pids-limit", "64",
+    "--security-opt", `seccomp=${bounded ? LINUX_OCI_BOUNDED_SECCOMP_PATH : LINUX_OCI_SECCOMP_PATH}`,
+    "--pids-limit", String(execution.maxTasks),
     "--ipc", "none"
   ];
   if (typeof process.getuid === "function" && typeof process.getgid === "function") {
@@ -260,6 +323,13 @@ export function buildLinuxOciInvocation({
   for (const root of roots) {
     args.push("--mount", `type=bind,src=${root},dst=${root},readonly`);
   }
+  if (bounded) {
+    validateLinuxMountPath(LINUX_OCI_SUPERVISOR_PATH, "process-tree supervisor");
+    args.push(
+      "--mount",
+      `type=bind,src=${LINUX_OCI_SUPERVISOR_PATH},dst=${LINUX_OCI_SUPERVISOR_CONTAINER_PATH},readonly`
+    );
+  }
   if (!roots.some((root) => isWithin(root, cwd))) {
     if (!projectionDir) throw new SandboxUnavailableError("a read projection is required for an unmounted working directory");
     validateLinuxMountPath(projectionDir, "read projection");
@@ -272,21 +342,40 @@ export function buildLinuxOciInvocation({
     targetValues[name] = String(value);
     args.push("--env", name);
   }
+  if (bounded) {
+    targetValues.SHEDU_INTERNAL_EXECUTION_CLASS = execution.class;
+    targetValues.SHEDU_INTERNAL_MAX_TASKS = String(execution.maxTasks);
+    targetValues.SHEDU_INTERNAL_MAX_OUTPUT_BYTES = String(maxOutputBytes);
+    for (const name of ["SHEDU_INTERNAL_EXECUTION_CLASS", "SHEDU_INTERNAL_MAX_TASKS", "SHEDU_INTERNAL_MAX_OUTPUT_BYTES"]) {
+      args.push("--env", name);
+    }
+  }
   // Override the image entrypoint so no shell/bootstrap process runs before
   // Node. Docker execs the verified interpreter as PID 1 with argvTail
   // preserved exactly; the image's convenience entrypoint is not authority.
-  args.push(authority.image.reference, ...argvTail);
+  args.push(
+    authority.image.reference,
+    ...(bounded
+      ? [LINUX_OCI_SUPERVISOR_CONTAINER_PATH, "--", executablePath, ...argvTail]
+      : argvTail)
+  );
 
   const invocation = [authority.runtime.path, ...args];
   return attachInvocation(invocation, {
     backend: "linux-oci",
+    backendAuthorityDigest: authority.authorityDigest,
+    portableAuthorityDigest: portable.portableAuthorityDigest,
+    capabilityId: portable.capabilityId,
     containerName,
+    execution: { ...execution },
     spawnEnv: ociHostEnvironment(targetValues),
-    cleanup: () => removeLinuxOciContainer(containerName)
+    cleanup: () => removeLinuxOciContainer(containerName),
+    parseSpawnResult: bounded ? parseLinuxSupervisorOutput : null,
+    maxBufferOverhead: bounded ? 64 * 1024 : 0
   });
 }
 
-function runLinuxProbeScript(authority, script, { cwd, readRoots, environment = {} }) {
+function runLinuxProbeScript(authority, script, { cwd, readRoots, environment = {}, execution = EXECUTION_PRESETS.STRICT }) {
   const projection = readRoots.some((root) => isWithin(root, cwd)) ? null : createReadProjection(cwd, []);
   const invocation = buildLinuxOciInvocation({
     authority,
@@ -296,18 +385,63 @@ function runLinuxProbeScript(authority, script, { cwd, readRoots, environment = 
     readFiles: [],
     cwd,
     environment,
+    execution,
+    maxOutputBytes: 1024 * 1024,
     projectionDir: projection
   });
   try {
-    return spawnSync(invocation[0], invocation.slice(1), {
-      encoding: "utf8",
+    const result = spawnSync(invocation[0], invocation.slice(1), {
+      encoding: "buffer",
       env: invocation.spawnEnv,
       timeout: 30_000,
+      maxBuffer: 1024 * 1024 + invocation.maxBufferOverhead,
       windowsHide: true
     });
+    if (invocation.parseSpawnResult && !result.error && result.status === 0) {
+      const parsed = invocation.parseSpawnResult(result.stdout);
+      result.stdout = parsed.stdout.toString("utf8");
+      result.stderr = (result.stderr ?? Buffer.alloc(0)).toString("utf8");
+      result.resourceReport = parsed.resourceReport;
+      result.status = parsed.resourceReport.exitCode;
+      result.signal = parsed.resourceReport.signal;
+    } else {
+      result.stdout = (result.stdout ?? Buffer.alloc(0)).toString("utf8");
+      result.stderr = (result.stderr ?? Buffer.alloc(0)).toString("utf8");
+    }
+    return result;
   } finally {
     invocation.cleanup();
     if (projection) rmSync(projection, { recursive: true, force: true });
+  }
+}
+
+function defaultLinuxBoundedProbeRunner() {
+  let root;
+  try {
+    const authority = linuxOciAuthority();
+    root = realpathSync(mkdtempSync(join(tmpdir(), "shedu-oci-bounded-probe-")));
+    const positive = runLinuxProbeScript(
+      authority,
+      'const r=require("node:child_process").spawnSync(process.execPath,["-e","process.stdout.write(\"CHILD\")"]);process.stdout.write(r.stdout);process.exit(r.status??1)',
+      { cwd: root, readRoots: [root], execution: EXECUTION_PRESETS.STANDARD_TEST }
+    );
+    if (positive.error || positive.status !== 0 || positive.stdout !== "CHILD" || positive.resourceReport?.limitFired !== false) {
+      return { available: false, reason: `bounded child-process probe failed: ${positive.error ?? positive.stderr ?? positive.stdout}` };
+    }
+
+    const pressure = runLinuxProbeScript(
+      authority,
+      'const {spawn}=require("node:child_process");const children=[];for(let i=0;i<256;i++){const c=spawn(process.execPath,["-e","setTimeout(()=>{},5000)"]);c.on("error",()=>{});children.push(c)}setTimeout(()=>{for(const c of children){try{c.kill("SIGKILL")}catch{}}process.exit(0)},500)',
+      { cwd: root, readRoots: [root], execution: { class: "BOUNDED_PROCESS_TREE", maxTasks: 65 } }
+    );
+    if (pressure.resourceReport?.limitFired !== true || pressure.resourceReport.limitEvents < 1) {
+      return { available: false, reason: "bounded cgroup probe did not record a pids.max event" };
+    }
+    return { available: true, reason: null, backend: "linux-oci", authorityDigest: authority.authorityDigest };
+  } catch (error) {
+    return { available: false, reason: `Linux OCI bounded sandbox unavailable: ${error}` };
+  } finally {
+    if (root) rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -348,30 +482,45 @@ export function sandboxStatus() {
   return probed;
 }
 
+export function boundedSandboxStatus() {
+  if (boundedProbed === null) {
+    boundedProbed = process.platform === "linux"
+      ? defaultLinuxBoundedProbeRunner()
+      : { available: false, reason: "BOUNDED_PROCESS_TREE requires the pinned Linux OCI backend" };
+  }
+  return boundedProbed;
+}
+
 // Wraps a resolved executable + declared argv tail for isolated execution.
 // `executablePath` is the concrete, already-verified interpreter (from the
 // closed toolchain authority). readRoots are the mechanically declared,
 // path-contained roots the command may READ (candidate and base
 // materializations). Throws SandboxUnavailableError when isolation cannot be
-// enforced — including a process ceiling this backend cannot cap exactly.
-export function isolateExecution({ executablePath, argvTail, maxProcesses, readRoots = [], readFiles = [], cwd = process.cwd(), environment = {} }) {
+// enforced — including a requested execution class this backend cannot cap
+// exactly.
+export function isolateExecution({ executablePath, argvTail, maxProcesses, execution = null, maxOutputBytes = 8 * 1024 * 1024, readRoots = [], readFiles = [], cwd = process.cwd(), environment = {} }) {
   const status = sandboxStatus();
   if (!status.available) {
     throw new SandboxUnavailableError(`target-command isolation unavailable: ${status.reason}`);
   }
-  if (!Number.isSafeInteger(maxProcesses) || maxProcesses < 1) {
-    throw new SandboxUnavailableError("a positive process ceiling is required");
-  }
-  if (maxProcesses !== 1) {
+  if (execution === null && maxProcesses !== 1) {
     throw new SandboxUnavailableError(
       `this backend enforces a process ceiling only by fork denial; maxProcesses ${maxProcesses} cannot be capped exactly`
     );
+  }
+  const effectiveExecution = execution ?? EXECUTION_PRESETS.STRICT;
+  if (!isExecutionRequirement(effectiveExecution)) {
+    throw new SandboxUnavailableError("a closed execution requirement is required");
   }
   if (!isAbsolute(executablePath)) {
     throw new SandboxUnavailableError(`executable must be an absolute resolved path: ${JSON.stringify(executablePath)}`);
   }
 
   if (process.platform === "linux") {
+    if (effectiveExecution.class === "BOUNDED_PROCESS_TREE") {
+      const bounded = boundedSandboxStatus();
+      if (!bounded.available) throw new SandboxUnavailableError(`bounded target-command isolation unavailable: ${bounded.reason}`);
+    }
     const realCwd = realpathSync(cwd);
     const realRoots = readRoots.map((root) => realpathSync(root));
     const realFiles = readFiles.map((file) => realpathSync(file));
@@ -386,6 +535,8 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
         readFiles: realFiles,
         cwd: realCwd,
         environment,
+        execution: effectiveExecution,
+        maxOutputBytes,
         projectionDir: projection
       });
       const cleanup = invocation.cleanup;
@@ -401,6 +552,10 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
       if (projection) rmSync(projection, { recursive: true, force: true });
       throw error;
     }
+  }
+
+  if (effectiveExecution.class === "BOUNDED_PROCESS_TREE") {
+    throw new ExecutionBackendRequiredError("BOUNDED_PROCESS_TREE requires the pinned Linux OCI backend");
   }
 
   const grantedReadRoots = new Set();
@@ -465,6 +620,10 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
   });
   return attachInvocation(["sandbox-exec", "-p", profile, executablePath, ...argvTail], {
     backend: "darwin-sandbox-exec",
+    backendAuthorityDigest: null,
+    portableAuthorityDigest: null,
+    capabilityId: executionCapabilityId(effectiveExecution.class),
+    execution: { ...effectiveExecution },
     spawnEnv: environment,
     cleanup: () => {}
   });
@@ -474,6 +633,7 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, readR
 // probe against an injected runner to exercise the nested-sandbox path.
 export function overrideSandboxProbe(result) {
   probed = result;
+  boundedProbed = result;
 }
 
 export function probeBackendWith(probeRunner) {

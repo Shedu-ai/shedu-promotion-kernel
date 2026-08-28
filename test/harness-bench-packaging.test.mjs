@@ -37,6 +37,7 @@ test("subject.json is valid against the Harness Bench subject template and decla
     assert.ok(subject.promotionParameterMap[key], `parameter ${key} must be declared`);
   }
   assert.equal(subject.publishedReceiptPath, "current/receipt.json");
+  assert.deepEqual(subject.executionPreflightArgv, ["node", "src/cli.mjs", "execution-preflight"]);
 });
 
 test("driving the CLI purely from the declared argv + parameter map admits and promotes", () => {

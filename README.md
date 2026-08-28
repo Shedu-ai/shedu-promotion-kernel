@@ -8,7 +8,7 @@ The kernel does not generate code or decide what should be built. It determines 
 > **Status: FOUNDATION_ONLY.** The system is built and has passed several rounds of adversarial testing, but this public version is not yet authorized to approve software changes.
 It runs checks in a tightly controlled environment: programs are verified before execution, network access and file changes are blocked, resource and time limits are enforced, and critical failures stop the process. Every decision is backed by tamper-evident evidence and can be independently verified or digitally signed.
 Before the kernel can enter experimental use, an independent authority must certify a specific clean version using an external signing key. The public repository cannot certify itself, so it correctly refuses to issue promotion approvals.
-The secure execution environment supports native macOS isolation and Linux through an immutable, digest-pinned OCI container. Both backends enforce one target process at a time; multi-process target test suites remain unsupported rather than receiving weaker isolation.
+The secure execution environment supports native macOS isolation and Linux through an immutable, digest-pinned OCI container. Existing contracts retain strict single-process execution. Versioned `@2` policy packs may authorize the `STANDARD_TEST` preset, which runs a numerically bounded process tree only on the pinned Linux OCI backend. The kernel chooses and verifies the backend; a user or coding agent never configures Docker, seccomp, or cgroups.
 
 ## Promotion path
 
@@ -30,10 +30,15 @@ node src/cli.mjs compile --contract <file> --repo <dir>
 node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>]
 node src/cli.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
 node src/cli.mjs conformance --out <dir>
+node src/cli.mjs execution-preflight
 node src/cli.mjs --subject-probe
 ```
 
 Each emits machine-readable JSON on stdout and machine errors on stderr.
+`execution-preflight` is provider-free routing evidence: it reports whether
+`STRICT` and `STANDARD_TEST` are enforceable on the current worker. It cannot
+grant or enlarge the authority compiled from a policy pack, work contract,
+and policy profile.
 
 ## Install and try a policy pack
 

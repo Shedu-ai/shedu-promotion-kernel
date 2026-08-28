@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { digestOfCanonical } from "../src/canonical-json.mjs";
+import { digestOfBytes, digestOfCanonical } from "../src/canonical-json.mjs";
 import {
   LINUX_OCI_IMAGE,
   LINUX_OCI_IMAGE_DIGEST,
+  LINUX_OCI_BOUNDED_SECCOMP_PATH,
   LINUX_OCI_NODE_PATH,
-  ociHostEnvironment
+  LINUX_OCI_SUPERVISOR_CONTAINER_PATH,
+  ociHostEnvironment,
+  portableLinuxExecutionAuthority
 } from "../src/oci-runtime.mjs";
-import { buildLinuxOciInvocation } from "../src/sandbox.mjs";
+import { buildLinuxOciInvocation, parseLinuxSupervisorOutput } from "../src/sandbox.mjs";
+import { EXECUTION_PRESETS } from "../src/execution-policy.mjs";
+import { SUPERVISOR_REPORT_MAGIC, parsePidsEvents } from "../src/process-tree-supervisor.mjs";
 
 const AUTHORITY = {
   runtime: { path: "/usr/bin/docker", digest: `sha256:${"1".repeat(64)}` },
@@ -17,6 +22,11 @@ const AUTHORITY = {
     indexDigest: LINUX_OCI_IMAGE_DIGEST,
     imageId: `sha256:${"2".repeat(64)}`
   },
+  seccompDigests: {
+    strict: `sha256:${"3".repeat(64)}`,
+    bounded: `sha256:${"4".repeat(64)}`
+  },
+  supervisorDigest: `sha256:${"5".repeat(64)}`,
   authorityDigest: digestOfCanonical({ test: "authority" })
 };
 
@@ -122,4 +132,87 @@ test("the checked-in seccomp policy mechanically denies network and process crea
   const clone3 = policy.syscalls.find((rule) => rule.names.includes("clone3"));
   assert.equal(clone3.action, "SCMP_ACT_ERRNO");
   assert.equal(clone3.errnoRet, 38);
+});
+
+test("bounded OCI execution preserves target argv behind a pinned PID-1 supervisor", () => {
+  const target = ["-e", "process.exit(0)", "a b", "$(not-shell)"];
+  const invocation = buildLinuxOciInvocation({
+    authority: AUTHORITY,
+    executablePath: LINUX_OCI_NODE_PATH,
+    argvTail: target,
+    readRoots: ["/tmp/candidate"],
+    readFiles: [],
+    cwd: "/tmp/candidate",
+    environment: { PUBLIC_SETTING: "not-in-argv" },
+    execution: EXECUTION_PRESETS.STANDARD_TEST,
+    maxOutputBytes: 4096,
+    containerName: "shedu-kernel-bounded-test"
+  });
+  const imageIndex = invocation.indexOf(LINUX_OCI_IMAGE);
+  assert.deepEqual(
+    invocation.slice(imageIndex + 1),
+    [LINUX_OCI_SUPERVISOR_CONTAINER_PATH, "--", LINUX_OCI_NODE_PATH, ...target]
+  );
+  assert.equal(invocation[invocation.indexOf("--pids-limit") + 1], "128");
+  assert.ok(invocation.includes(`seccomp=${LINUX_OCI_BOUNDED_SECCOMP_PATH}`));
+  assert.ok(invocation.some((arg) => arg.includes("process-tree-supervisor.mjs")));
+  assert.equal(invocation.spawnEnv.SHEDU_INTERNAL_EXECUTION_CLASS, "BOUNDED_PROCESS_TREE");
+  assert.equal(invocation.spawnEnv.SHEDU_INTERNAL_MAX_TASKS, "128");
+  assert.equal(invocation.spawnEnv.PUBLIC_SETTING, "not-in-argv");
+  assert.ok(!invocation.includes("not-in-argv"));
+  assert.equal(invocation.parseSpawnResult, parseLinuxSupervisorOutput);
+  assert.equal(invocation.capabilityId, "bounded-process-tree@1");
+  assert.equal(
+    invocation.portableAuthorityDigest,
+    portableLinuxExecutionAuthority("BOUNDED_PROCESS_TREE").portableAuthorityDigest
+  );
+});
+
+test("the bounded seccomp authority allows ordinary children but not namespaces or group escape", () => {
+  const policyUrl = new URL("../security/linux-seccomp-bounded.json", import.meta.url);
+  const policyBytes = readFileSync(policyUrl);
+  const policy = JSON.parse(policyBytes);
+  const provenance = JSON.parse(readFileSync(new URL("../security/linux-seccomp-bounded.provenance.json", import.meta.url), "utf8"));
+  assert.equal(provenance.derivedDigest, digestOfBytes(policyBytes));
+  assert.equal(provenance.sourceDigest, digestOfBytes(readFileSync(new URL("../security/linux-seccomp.json", import.meta.url))));
+  assert.equal(provenance.generatorDigest, digestOfBytes(readFileSync(new URL("../scripts/generate-bounded-seccomp.mjs", import.meta.url))));
+  const unconditional = new Set(
+    policy.syscalls
+      .filter((rule) => rule.action === "SCMP_ACT_ALLOW" && !rule.args && !rule.includes)
+      .flatMap((rule) => rule.names)
+  );
+  assert.ok(unconditional.has("fork"));
+  assert.ok(unconditional.has("vfork"));
+  for (const syscall of ["unshare", "setns", "setpgid", "setsid", "socket", "connect", "bind", "listen"]) {
+    assert.ok(!unconditional.has(syscall), syscall);
+  }
+  const clone = policy.syscalls.find((rule) => rule.names.length === 1 && rule.names[0] === "clone");
+  assert.equal(clone.args[0].op, "SCMP_CMP_MASKED_EQ");
+  assert.equal(clone.args[0].value, 0);
+  assert.ok(clone.args[0].valueTwo > 0);
+  const clone3 = policy.syscalls.find((rule) => rule.names.includes("clone3"));
+  assert.equal(clone3.action, "SCMP_ACT_ERRNO");
+});
+
+test("only the final supervisor frame is authoritative and target bytes round-trip", () => {
+  const forged = `${SUPERVISOR_REPORT_MAGIC}${Buffer.from('{"fake":true}').toString("base64url")}\n`;
+  const genuine = {
+    schemaVersion: "process-resource-report@1",
+    class: "BOUNDED_PROCESS_TREE",
+    maxTasks: 128,
+    limitFired: false,
+    limitEvents: 0,
+    outputExceeded: false,
+    exitCode: 0,
+    signal: null
+  };
+  const payload = Buffer.concat([
+    Buffer.from(`target-before${forged}target-after`),
+    Buffer.from(`${SUPERVISOR_REPORT_MAGIC}${Buffer.from(JSON.stringify(genuine)).toString("base64url")}\n`)
+  ]);
+  const parsed = parseLinuxSupervisorOutput(payload);
+  assert.equal(parsed.stdout.toString(), `target-before${forged}target-after`);
+  assert.deepEqual(parsed.resourceReport, genuine);
+  assert.throws(() => parseLinuxSupervisorOutput(Buffer.from("target only")), /no resource report/);
+  assert.deepEqual(parsePidsEvents("max 3\n"), { max: 3 });
 });
