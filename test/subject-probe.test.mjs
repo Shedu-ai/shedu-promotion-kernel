@@ -105,23 +105,28 @@ test("stale, wrong-commit, wrong-key, and replayed attestations all fail closed"
   assert.equal(computeAdmission(baseOk({ controlSurfaceDigest: `sha256:${"9".repeat(64)}` })).status, "FOUNDATION_ONLY");
 });
 
-test("non-probe execution still fails closed", () => {
+test("no-argument execution is the read-only live status projection", () => {
   const result = spawnSync(process.execPath, ["src/cli.mjs"], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8"
   });
-  assert.equal(result.status, 2);
-  assert.deepEqual(JSON.parse(result.stderr), {
-    schemaVersion: "promotion-kernel-error@1",
-    status: "BLOCKED",
-    reasonCode: "KERNEL_NOT_IMPLEMENTED"
-  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  const status = JSON.parse(result.stdout);
+  assert.equal(status.schemaVersion, "kernel-agent-status@1");
+  assert.equal(status.implementationStatus, "FOUNDATION_ONLY");
+  assert.equal(status.promotionEntrypointAvailable, false);
+  assert.deepEqual(status.admissionReasonCodes, ["NOT_ADMITTED"]);
+  assert.deepEqual(status.nextActions, ["OBTAIN_EXTERNAL_ADMISSION"]);
+  assert.ok(status.capabilities.includes("kernel-agent-interface@1"));
 });
 
 test("the Bench subject contract is honestly FOUNDATION_ONLY with no promotion entrypoint", () => {
   const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
   assert.equal(subject.implementationStatus, "FOUNDATION_ONLY");
   assert.equal(subject.promotionArgv, null);
+  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "status"]);
+  assert.deepEqual(subject.evidenceInspectionArgv, ["node", "src/cli.mjs", "inspect-evidence"]);
   assert.deepEqual(subject.conformanceArgv, ["node", "src/cli.mjs", "conformance"]);
   assert.match(KERNEL_RELEASE, /@shedu\/promotion-kernel@/);
 });

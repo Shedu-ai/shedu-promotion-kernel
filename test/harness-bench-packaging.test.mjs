@@ -15,10 +15,10 @@ const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json"
 const template = JSON.parse(readFileSync(new URL("../schemas/harness-bench-subject-template.schema.json", import.meta.url), "utf8"));
 
 // A generic argv builder that a harness would use: it appends flags PURELY
-// from the declared promotionParameterMap — nothing is hardcoded here.
-function buildArgvFromDeclaration(values) {
-  const argv = [...subject.admittedPromotionArgv];
-  for (const [key, spec] of Object.entries(subject.promotionParameterMap)) {
+// from one declared argv + parameter map — nothing is hardcoded here.
+function buildArgvFromDeclaration(baseArgv, parameterMap, values) {
+  const argv = [...baseArgv];
+  for (const [key, spec] of Object.entries(parameterMap)) {
     if (values[key] !== undefined) {
       argv.push(spec.flag, values[key]);
     } else if (spec.required) {
@@ -33,9 +33,14 @@ test("subject.json is valid against the Harness Bench subject template and decla
   assert.deepEqual(errors, [], JSON.stringify(errors));
   // The map must cover every flag the CLI's evaluate entrypoint accepts, so a
   // harness never has to hardcode a flag.
-  for (const key of ["contract", "repository", "outputDir", "attestation", "pinnedKey", "expectedCommit"]) {
+  for (const key of ["contract", "repository", "outputDir", "attestation", "pinnedKey", "expectedCommit", "signKey", "projection"]) {
     assert.ok(subject.promotionParameterMap[key], `parameter ${key} must be declared`);
   }
+  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "status"]);
+  assert.deepEqual(Object.keys(subject.statusParameterMap), ["outputDir"]);
+  assert.deepEqual(subject.evidenceInspectionArgv, ["node", "src/cli.mjs", "inspect-evidence"]);
+  assert.deepEqual(Object.keys(subject.evidenceInspectionParameterMap), ["outputDir", "artifactId", "maxBytes"]);
+  assert.ok(subject.capabilities.includes("kernel-agent-interface@1"));
   assert.equal(subject.publishedReceiptPath, "current/receipt.json");
 });
 
@@ -81,7 +86,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
   const out = mkdtempSync(join(tmpdir(), "shedu-out-"));
 
   // Construct the invocation ENTIRELY from subject.json.
-  const argv = buildArgvFromDeclaration({
+  const argv = buildArgvFromDeclaration(subject.admittedPromotionArgv, subject.promotionParameterMap, {
     contract: contractPath,
     repository: target.repoDir,
     outputDir: out,
@@ -103,6 +108,70 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
 
   // The receipt is published exactly where subject.json declares.
   assert.ok(existsSync(join(out, subject.publishedReceiptPath)));
-  const onDisk = JSON.parse(readFileSync(join(out, subject.publishedReceiptPath), "utf8"));
+  const onDiskBytes = readFileSync(join(out, subject.publishedReceiptPath), "utf8");
+  const onDisk = JSON.parse(onDiskBytes);
   assert.equal(onDisk.disposition, "PROMOTABLE");
+  assert.equal(run.stdout, `${onDiskBytes}\n`, "the default evaluate stdout must remain the exact full receipt");
+
+  // Every read-only interface is also driven solely by the v2 declaration.
+  const admittedEnv = {
+    PATH: process.env.PATH,
+    SHEDU_ATTESTATION_FILE: attPath,
+    SHEDU_PINNED_KEY: publicKeyHex,
+    SHEDU_EXPECTED_COMMIT: head
+  };
+  const subjectStatusArgv = buildArgvFromDeclaration(subject.statusArgv, subject.statusParameterMap, {});
+  const subjectStatusRun = spawnSync(process.execPath, [subjectStatusArgv[1], ...subjectStatusArgv.slice(2)], {
+    cwd: copy, encoding: "utf8", env: admittedEnv
+  });
+  assert.equal(subjectStatusRun.status, 0, subjectStatusRun.stderr);
+  const subjectStatus = JSON.parse(subjectStatusRun.stdout);
+  assert.equal(subjectStatus.schemaVersion, "kernel-agent-status@1");
+  assert.equal(subjectStatus.implementationStatus, "EXPERIMENTAL");
+  assert.deepEqual(subjectStatus.nextActions, ["SUBMIT_EVALUATION"]);
+
+  const evaluationStatusArgv = buildArgvFromDeclaration(subject.statusArgv, subject.statusParameterMap, { outputDir: out });
+  const evaluationStatusRun = spawnSync(process.execPath, [evaluationStatusArgv[1], ...evaluationStatusArgv.slice(2)], {
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+  });
+  assert.equal(evaluationStatusRun.status, 0, evaluationStatusRun.stderr);
+  const evaluationStatus = JSON.parse(evaluationStatusRun.stdout);
+  assert.equal(evaluationStatus.schemaVersion, "kernel-evaluation-summary@1");
+  assert.equal(evaluationStatus.verification, "VERIFIED");
+  assert.equal(evaluationStatus.disposition, "PROMOTABLE");
+  assert.deepEqual(evaluationStatus.nextActions, ["VERIFY_PROMOTABLE_RECEIPT", "EXTERNAL_PROMOTION_DECISION_AVAILABLE"]);
+
+  const index = JSON.parse(readFileSync(join(out, "current", "artifacts", "evidence", "index.json"), "utf8"));
+  const selected = index.artifacts[0].artifactId;
+  const inspectArgv = buildArgvFromDeclaration(
+    subject.evidenceInspectionArgv,
+    subject.evidenceInspectionParameterMap,
+    { outputDir: out, artifactId: selected, maxBytes: "32" }
+  );
+  const inspectRun = spawnSync(process.execPath, [inspectArgv[1], ...inspectArgv.slice(2)], {
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+  });
+  assert.equal(inspectRun.status, 0, inspectRun.stderr);
+  const evidenceView = JSON.parse(inspectRun.stdout);
+  assert.equal(evidenceView.schemaVersion, "kernel-evidence-view@1");
+  assert.equal(evidenceView.artifact.artifactId, selected);
+
+  // Compact evaluate stdout is presentation-only: the authoritative on-disk
+  // bundle remains a complete promotion-receipt@1.
+  const compactOut = mkdtempSync(join(tmpdir(), "shedu-out-agent-"));
+  const compactArgv = buildArgvFromDeclaration(subject.admittedPromotionArgv, subject.promotionParameterMap, {
+    contract: contractPath,
+    repository: target.repoDir,
+    outputDir: compactOut,
+    attestation: attPath,
+    pinnedKey: publicKeyHex,
+    expectedCommit: head,
+    projection: "agent"
+  });
+  const compactRun = spawnSync(process.execPath, [compactArgv[1], ...compactArgv.slice(2)], {
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+  });
+  assert.equal(compactRun.status, 0, compactRun.stderr);
+  assert.equal(JSON.parse(compactRun.stdout).schemaVersion, "kernel-evaluation-summary@1");
+  assert.equal(JSON.parse(readFileSync(join(compactOut, subject.publishedReceiptPath), "utf8")).schemaVersion, "promotion-receipt@1");
 });

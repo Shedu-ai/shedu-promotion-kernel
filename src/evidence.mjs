@@ -1,7 +1,10 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { validateDocument, validateValue } from "./contracts.mjs";
+import { hashBoundedRegularFile, readBoundedRegularFile } from "./bounded-file.mjs";
+
+const MAX_EVIDENCE_INDEX_BYTES = 1_048_576;
 
 // Control point: the cumulative evidence-artifact byte ceiling.
 export const CONTROL_POINTS = Object.freeze(["evidence-artifact-ceiling"]);
@@ -57,46 +60,76 @@ export function createEvidenceIndex({ rootDir, binding, maxTotalBytes = Number.M
 // Offline verification: the index must be schema-valid, every artifact's
 // object must be present and hash to its declared digest, and no undeclared
 // object may sit in the store.
-export function verifyEvidenceDir(rootDir) {
+export function verifyEvidenceDir(rootDir, { maxTotalBytes = Number.MAX_SAFE_INTEGER } = {}) {
   const errors = [];
   let index = null;
+  let indexBytes = null;
+  let resolvedRoot;
+  let objectsDir;
+  if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
+    throw new TypeError("maxTotalBytes must be a non-negative safe integer");
+  }
   try {
-    const bytes = readFileSync(join(rootDir, "index.json"));
-    const validated = validateDocument("evidence-index@1", bytes);
+    resolvedRoot = realpathSync(rootDir);
+    if (!lstatSync(resolvedRoot).isDirectory()) throw new Error("evidence root is not a directory");
+    objectsDir = join(resolvedRoot, "objects", "sha256");
+    if (realpathSync(objectsDir) !== objectsDir || !lstatSync(objectsDir).isDirectory()) {
+      throw new Error("evidence object directory is not a concrete contained directory");
+    }
+    indexBytes = readBoundedRegularFile(join(resolvedRoot, "index.json"), MAX_EVIDENCE_INDEX_BYTES);
+    const validated = validateDocument("evidence-index@1", indexBytes);
     if (!validated.ok) return { ok: false, errors: validated.errors, index: null };
     index = validated.value;
   } catch {
-    return { ok: false, errors: [{ reasonCode: "EVIDENCE_MISSING", message: "evidence index.json is missing or unreadable" }], index: null };
+    return { ok: false, errors: [{ reasonCode: "EVIDENCE_MISSING", message: "evidence index or concrete object directory is missing or unreadable" }], index: null, indexBytes: null };
   }
 
-  const objectsDir = join(rootDir, "objects", "sha256");
   const declared = new Set();
+  let totalBytes = 0;
   for (const artifact of index.artifacts) {
-    declared.add(artifact.digest.slice("sha256:".length));
-    let bytes;
+    const objectName = artifact.digest.slice("sha256:".length);
+    declared.add(objectName);
+    totalBytes += artifact.byteLength;
+    if (!Number.isSafeInteger(totalBytes) || totalBytes > maxTotalBytes) {
+      errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `declared evidence exceeds the ${maxTotalBytes}-byte verification ceiling` });
+      break;
+    }
+    let inspected;
     try {
-      bytes = readFileSync(join(objectsDir, artifact.digest.slice("sha256:".length)));
+      inspected = hashBoundedRegularFile(join(objectsDir, objectName), artifact.byteLength);
     } catch {
-      errors.push({ reasonCode: "EVIDENCE_MISSING", message: `artifact ${artifact.artifactId} object is missing` });
+      let exists = false;
+      try {
+        lstatSync(join(objectsDir, objectName));
+        exists = true;
+      } catch {
+        exists = false;
+      }
+      errors.push({
+        reasonCode: exists ? "EVIDENCE_MUTATED" : "EVIDENCE_MISSING",
+        message: `artifact ${artifact.artifactId} object is ${exists ? "not the declared bounded regular file" : "missing"}`
+      });
       continue;
     }
-    if (digestOfBytes(bytes) !== artifact.digest) {
+    if (inspected.digest !== artifact.digest) {
       errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `artifact ${artifact.artifactId} bytes do not match ${artifact.digest}` });
     }
-    if (bytes.length !== artifact.byteLength) {
+    if (inspected.byteLength !== artifact.byteLength) {
       errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `artifact ${artifact.artifactId} byte length drifted` });
     }
   }
   let stored = [];
   try {
-    stored = readdirSync(objectsDir);
+    stored = readdirSync(objectsDir, { withFileTypes: true });
   } catch {
     stored = [];
   }
-  for (const name of stored) {
-    if (!declared.has(name)) {
-      errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `undeclared object ${name} present in evidence store` });
+  for (const entry of stored) {
+    if (!entry.isFile() || !/^[0-9a-f]{64}$/.test(entry.name)) {
+      errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `non-regular or malformed object ${entry.name} present in evidence store` });
+    } else if (!declared.has(entry.name)) {
+      errors.push({ reasonCode: "EVIDENCE_MUTATED", message: `undeclared object ${entry.name} present in evidence store` });
     }
   }
-  return { ok: errors.length === 0, errors, index };
+  return { ok: errors.length === 0, errors, index, indexBytes, resolvedRoot, objectsDir, totalBytes };
 }

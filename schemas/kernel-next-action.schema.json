@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-next-action.schema.json",
+  "title": "kernel-next-action@1",
+  "description": "Closed, non-authoritative action lanes derived mechanically from verified kernel state. Values grant no write or promotion authority.",
+  "type": "string",
+  "enum": [
+    "OBTAIN_EXTERNAL_ADMISSION",
+    "SUBMIT_EVALUATION",
+    "RETURN_TO_AUTHORIZER",
+    "REPAIR_CANDIDATE",
+    "REPAIR_EVALUATION_ENVIRONMENT",
+    "VERIFY_PROMOTABLE_RECEIPT",
+    "EXTERNAL_PROMOTION_DECISION_AVAILABLE",
+    "NONE"
+  ]
+}

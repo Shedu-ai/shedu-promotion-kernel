@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/harness-bench-subject-template.schema.json",
-  "schemaVersion": "harness-bench-subject-template@1",
+  "schemaVersion": "harness-bench-subject-template@2",
   "subjectId": "shedu-promotion-kernel",
   "repository": "https://github.com/Shedu-ai/shedu-promotion-kernel.git",
   "subjectKind": "promotion-kernel",
@@ -10,6 +10,24 @@
     "--subject-probe"
   ],
   "promotionArgv": null,
+  "statusArgv": [
+    "node",
+    "src/cli.mjs",
+    "status"
+  ],
+  "statusParameterMap": {
+    "outputDir": { "flag": "--out", "kind": "path", "required": false }
+  },
+  "evidenceInspectionArgv": [
+    "node",
+    "src/cli.mjs",
+    "inspect-evidence"
+  ],
+  "evidenceInspectionParameterMap": {
+    "outputDir": { "flag": "--out", "kind": "path", "required": true },
+    "artifactId": { "flag": "--artifact", "kind": "kebab", "required": true },
+    "maxBytes": { "flag": "--max-bytes", "kind": "positiveInteger", "required": false }
+  },
   "conformanceArgv": [
     "node",
     "src/cli.mjs",
@@ -27,12 +45,14 @@
     "attestation": { "flag": "--attestation", "kind": "path", "required": false, "admissionMaterial": true },
     "pinnedKey": { "flag": "--pinned-key", "kind": "hex64", "required": false, "admissionMaterial": true },
     "expectedCommit": { "flag": "--expected-commit", "kind": "sha40", "required": false, "admissionMaterial": true },
-    "signKey": { "flag": "--sign-key", "kind": "path", "required": false }
+    "signKey": { "flag": "--sign-key", "kind": "path", "required": false },
+    "projection": { "flag": "--projection", "kind": "projection", "required": false }
   },
   "publishedReceiptPath": "current/receipt.json",
   "capabilities": [
     "exact-argv@1",
     "immutable-subject-identity@1",
+    "kernel-agent-interface@1",
     "promotion-kernel-contract@1"
   ],
   "implementationStatus": "FOUNDATION_ONLY",

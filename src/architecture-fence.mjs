@@ -40,6 +40,16 @@ const RULES = [
   }
 ];
 
+const AUTHORITY_MODULES = new Set([
+  "src/admission.mjs",
+  "src/evaluate.mjs",
+  "src/reducer.mjs",
+  "src/receipt.mjs",
+  "src/supervisor.mjs",
+  "src/worker-evaluate.mjs"
+]);
+const PROJECTION_IMPORT_RE = /(?:from\s+|import\s*)["']\.\/(?:agent-contracts|agent-projection|next-actions)\.mjs["']/;
+
 function listFiles(dir, ext) {
   const out = [];
   for (const name of readdirSync(dir)) {
@@ -62,6 +72,13 @@ export function runArchitectureFence(srcDir) {
       if (rule.pattern.test(content) && !rule.allow.has(rel)) {
         violations.push({ ruleId: rule.id, file: rel, message: rule.message });
       }
+    }
+    if (AUTHORITY_MODULES.has(rel) && PROJECTION_IMPORT_RE.test(content)) {
+      violations.push({
+        ruleId: "projection-authority-dependency",
+        file: rel,
+        message: "admission, evaluation, reduction, receipt, signing, and publication authority may not import agent projection or next-action modules"
+      });
     }
   }
   return { ok: violations.length === 0, violations };

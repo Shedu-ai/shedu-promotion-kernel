@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-evaluation-summary.schema.json",
+  "title": "kernel-evaluation-summary@1",
+  "description": "Bounded read-only projection derived only from a completely verified published evaluation bundle.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evaluationState", "verification", "nextActions"],
+      "properties": {
+        "schemaVersion": {"const": "kernel-evaluation-summary@1"},
+        "evaluationState": {"const": "ABSENT"},
+        "verification": {"const": "NOT_APPLICABLE"},
+        "nextActions": {"$ref": "#/$defs/nextActions"}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "evaluationState",
+        "verification",
+        "kernelRelease",
+        "repositoryId",
+        "baseCommit",
+        "candidate",
+        "disposition",
+        "reasonCodes",
+        "digests",
+        "checkCounts",
+        "nonPassingChecks",
+        "changedFiles",
+        "signing",
+        "nextActions"
+      ],
+      "properties": {
+        "schemaVersion": {"const": "kernel-evaluation-summary@1"},
+        "evaluationState": {"const": "PRESENT"},
+        "verification": {"const": "VERIFIED"},
+        "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+        "repositoryId": {"$ref": "#/$defs/kebabId"},
+        "baseCommit": {"$ref": "#/$defs/commitId"},
+        "candidate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": {"enum": ["COMMIT", "TREE"]},
+            "id": {"$ref": "#/$defs/commitId"}
+          }
+        },
+        "disposition": {"enum": ["PROMOTABLE", "BLOCKED"]},
+        "reasonCodes": {"$ref": "#/$defs/reasonCodes"},
+        "digests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["receipt", "plan", "evidenceIndex"],
+          "properties": {
+            "receipt": {"$ref": "#/$defs/digest"},
+            "plan": {"$ref": "#/$defs/digest"},
+            "evidenceIndex": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "checkCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "byEffect", "byOutcome"],
+          "properties": {
+            "total": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "byEffect": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["BLOCKING", "ADVISORY"],
+              "properties": {
+                "BLOCKING": {"type": "integer", "minimum": 0, "maximum": 4096},
+                "ADVISORY": {"type": "integer", "minimum": 0, "maximum": 4096}
+              }
+            },
+            "byOutcome": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["PASS", "FIRED", "INFRA_FAILURE", "SKIPPED"],
+              "properties": {
+                "PASS": {"type": "integer", "minimum": 0, "maximum": 4096},
+                "FIRED": {"type": "integer", "minimum": 0, "maximum": 4096},
+                "INFRA_FAILURE": {"type": "integer", "minimum": 0, "maximum": 4096},
+                "SKIPPED": {"type": "integer", "minimum": 0, "maximum": 4096}
+              }
+            }
+          }
+        },
+        "nonPassingChecks": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["checkId", "packId", "effect", "outcome", "reasonCodes", "evidenceArtifactIds"],
+            "properties": {
+              "checkId": {"$ref": "#/$defs/kebabId"},
+              "packId": {"$ref": "#/$defs/kebabId"},
+              "effect": {"enum": ["BLOCKING", "ADVISORY"]},
+              "outcome": {"enum": ["FIRED", "INFRA_FAILURE", "SKIPPED"]},
+              "reasonCodes": {"$ref": "#/$defs/reasonCodes"},
+              "evidenceArtifactIds": {
+                "type": "array",
+                "maxItems": 256,
+                "uniqueItems": true,
+                "items": {"$ref": "#/$defs/kebabId"}
+              }
+            }
+          }
+        },
+        "changedFiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "byScopeClass", "byChangeKind"],
+          "properties": {
+            "total": {"type": "integer", "minimum": 0, "maximum": 8192},
+            "byScopeClass": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ALLOWED", "READONLY", "FORBIDDEN", "UNCLASSIFIED"],
+              "properties": {
+                "ALLOWED": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "READONLY": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "FORBIDDEN": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "UNCLASSIFIED": {"type": "integer", "minimum": 0, "maximum": 8192}
+              }
+            },
+            "byChangeKind": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ADDED", "MODIFIED", "DELETED", "RENAMED"],
+              "properties": {
+                "ADDED": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "MODIFIED": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "DELETED": {"type": "integer", "minimum": 0, "maximum": 8192},
+                "RENAMED": {"type": "integer", "minimum": 0, "maximum": 8192}
+              }
+            }
+          }
+        },
+        "signing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present", "publicKey"],
+          "properties": {
+            "present": {"type": "boolean"},
+            "publicKey": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              ]
+            }
+          }
+        },
+        "nextActions": {"$ref": "#/$defs/nextActions"}
+      }
+    }
+  ],
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "commitId": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "reasonCodes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64}
+    },
+    "nextActions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "OBTAIN_EXTERNAL_ADMISSION",
+          "SUBMIT_EVALUATION",
+          "RETURN_TO_AUTHORIZER",
+          "REPAIR_CANDIDATE",
+          "REPAIR_EVALUATION_ENVIRONMENT",
+          "VERIFY_PROMOTABLE_RECEIPT",
+          "EXTERNAL_PROMOTION_DECISION_AVAILABLE",
+          "NONE"
+        ]
+      }
+    }
+  }
+}

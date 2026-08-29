@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/harness-bench-subject-template.schema.json",
-  "title": "Harness Bench Subject Template",
-  "description": "A subject repository's self-declared, non-authoritative connection template. Harness Bench independently resolves and freezes the final subject identity before planning a run.",
+  "title": "Harness Bench Subject Template v2",
+  "description": "A subject repository's self-declared, non-authoritative connection template. Version 2 adds exact read-only agent status and evidence inspection entrypoints. Harness Bench independently resolves and freezes the final subject identity before planning a run.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,6 +12,10 @@
     "subjectKind",
     "probeArgv",
     "promotionArgv",
+    "statusArgv",
+    "statusParameterMap",
+    "evidenceInspectionArgv",
+    "evidenceInspectionParameterMap",
     "capabilities",
     "implementationStatus",
     "commitShaSource"
@@ -21,7 +25,7 @@
       "type": "string"
     },
     "schemaVersion": {
-      "const": "harness-bench-subject-template@1"
+      "const": "harness-bench-subject-template@2"
     },
     "subjectId": {
       "type": "string",
@@ -43,6 +47,40 @@
         {"type": "null"},
         {"$ref": "#/$defs/argv"}
       ]
+    },
+    "statusArgv": {
+      "description": "Exact read-only argv for subject status; append the declared optional outputDir parameter to project a published evaluation.",
+      "$ref": "#/$defs/argv"
+    },
+    "statusParameterMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outputDir"],
+      "properties": {
+        "outputDir": {
+          "const": {"flag": "--out", "kind": "path", "required": false}
+        }
+      }
+    },
+    "evidenceInspectionArgv": {
+      "description": "Exact read-only argv for digest-bound evidence selection.",
+      "$ref": "#/$defs/argv"
+    },
+    "evidenceInspectionParameterMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outputDir", "artifactId", "maxBytes"],
+      "properties": {
+        "outputDir": {
+          "const": {"flag": "--out", "kind": "path", "required": true}
+        },
+        "artifactId": {
+          "const": {"flag": "--artifact", "kind": "kebab", "required": true}
+        },
+        "maxBytes": {
+          "const": {"flag": "--max-bytes", "kind": "positiveInteger", "required": false}
+        }
+      }
     },
     "conformanceArgv": {
       "oneOf": [
@@ -69,7 +107,8 @@
         "attestation": {"$ref": "#/$defs/parameter"},
         "pinnedKey": {"$ref": "#/$defs/parameter"},
         "expectedCommit": {"$ref": "#/$defs/parameter"},
-        "signKey": {"$ref": "#/$defs/parameter"}
+        "signKey": {"$ref": "#/$defs/parameter"},
+        "projection": {"$ref": "#/$defs/parameter"}
       }
     },
     "publishedReceiptPath": {
@@ -108,7 +147,7 @@
       "required": ["flag", "kind", "required"],
       "properties": {
         "flag": {"type": "string", "pattern": "^--[a-z][a-z-]*$"},
-        "kind": {"type": "string", "enum": ["path", "hex64", "sha40"]},
+        "kind": {"type": "string", "enum": ["path", "hex64", "sha40", "kebab", "positiveInteger", "projection"]},
         "required": {"type": "boolean"},
         "admissionMaterial": {"type": "boolean"}
       }

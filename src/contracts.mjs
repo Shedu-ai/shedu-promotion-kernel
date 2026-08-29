@@ -18,7 +18,11 @@ const SCHEMA_FILES = {
   "prior-art-query@1": "prior-art-query.schema.json",
   "conformance-status@2": "conformance-status.schema.json",
   "conformance-attestation@1": "conformance-attestation.schema.json",
-  "control-surface@1": "control-surface.schema.json"
+  "control-surface@1": "control-surface.schema.json",
+  "kernel-next-action@1": "kernel-next-action.schema.json",
+  "kernel-agent-status@1": "kernel-agent-status.schema.json",
+  "kernel-evaluation-summary@1": "kernel-evaluation-summary.schema.json",
+  "kernel-evidence-view@1": "kernel-evidence-view.schema.json"
 };
 
 const schemas = new Map(
@@ -149,6 +153,10 @@ function reasonCodeErrors(codes, location) {
   return out;
 }
 
+function orderedUnique(values) {
+  return values.length === new Set(values).size && values.every((value, index) => index === 0 || values[index - 1] < value);
+}
+
 const SEMANTIC = {
   "work-contract@1": (doc) => {
     const errors = [];
@@ -268,6 +276,16 @@ const SEMANTIC = {
     return reasonCodeErrors(doc.reasonCodes, "reasonCodes");
   },
 
+  "evidence-index@1": (doc) => {
+    const ids = doc.artifacts.map((artifact) => artifact.artifactId);
+    const errors = [];
+    for (const id of duplicateIds(ids)) errors.push(err("DUPLICATE_ENTRY_ID", `evidence artifact ${id} is indexed more than once`));
+    if (ids.some((id, index) => index > 0 && ids[index - 1] > id)) {
+      errors.push(err("SCHEMA_VIOLATION", "evidence artifacts must be sorted by artifactId"));
+    }
+    return errors;
+  },
+
   "prior-art-query@1": (doc) => {
     const errors = [];
     for (const id of duplicateIds(doc.queries.map((q) => q.queryId))) {
@@ -292,6 +310,77 @@ const SEMANTIC = {
     errors.push(...reasonCodeErrors(doc.reasonCodes, "reasonCodes"));
     for (const result of doc.checkResults) {
       errors.push(...reasonCodeErrors(result.reasonCodes, `checkResults[${result.checkId}].reasonCodes`));
+    }
+    return errors;
+  },
+
+  "kernel-agent-status@1": (doc) => {
+    const errors = [];
+    errors.push(...reasonCodeErrors(doc.admissionReasonCodes, "admissionReasonCodes"));
+    const admitted = doc.implementationStatus === "EXPERIMENTAL";
+    if (doc.promotionEntrypointAvailable !== admitted) {
+      errors.push(err("SCHEMA_VIOLATION", "implementationStatus contradicts promotionEntrypointAvailable"));
+    }
+    const expectedReasons = admitted ? [] : ["NOT_ADMITTED"];
+    if (JSON.stringify(doc.admissionReasonCodes) !== JSON.stringify(expectedReasons)) {
+      errors.push(err("SCHEMA_VIOLATION", "admissionReasonCodes contradict the projected admission state"));
+    }
+    if (!orderedUnique(doc.capabilities)) {
+      errors.push(err("SCHEMA_VIOLATION", "capabilities must be unique and sorted"));
+    }
+    return errors;
+  },
+
+  "kernel-evaluation-summary@1": (doc) => {
+    const errors = [];
+    if (doc.evaluationState === "ABSENT") {
+      return errors;
+    }
+    errors.push(...reasonCodeErrors(doc.reasonCodes, "reasonCodes"));
+    for (const result of doc.nonPassingChecks) {
+      errors.push(...reasonCodeErrors(result.reasonCodes, `nonPassingChecks[${result.checkId}].reasonCodes`));
+      if (!orderedUnique(result.evidenceArtifactIds)) {
+        errors.push(err("SCHEMA_VIOLATION", `nonPassingChecks[${result.checkId}].evidenceArtifactIds must be unique and sorted`));
+      }
+    }
+    if (!orderedUnique(doc.nonPassingChecks.map((result) => result.checkId))) {
+      errors.push(err("SCHEMA_VIOLATION", "nonPassingChecks must have unique sorted checkIds"));
+    }
+    const { total, byEffect, byOutcome } = doc.checkCounts;
+    if (byEffect.BLOCKING + byEffect.ADVISORY !== total) {
+      errors.push(err("SCHEMA_VIOLATION", "checkCounts.byEffect does not sum to total"));
+    }
+    if (byOutcome.PASS + byOutcome.FIRED + byOutcome.INFRA_FAILURE + byOutcome.SKIPPED !== total) {
+      errors.push(err("SCHEMA_VIOLATION", "checkCounts.byOutcome does not sum to total"));
+    }
+    if (doc.nonPassingChecks.length !== total - byOutcome.PASS) {
+      errors.push(err("SCHEMA_VIOLATION", "nonPassingChecks cardinality contradicts the PASS count"));
+    }
+    const changed = doc.changedFiles;
+    if (Object.values(changed.byScopeClass).reduce((sum, count) => sum + count, 0) !== changed.total) {
+      errors.push(err("SCHEMA_VIOLATION", "changedFiles.byScopeClass does not sum to total"));
+    }
+    if (Object.values(changed.byChangeKind).reduce((sum, count) => sum + count, 0) !== changed.total) {
+      errors.push(err("SCHEMA_VIOLATION", "changedFiles.byChangeKind does not sum to total"));
+    }
+    if (doc.signing.present !== (doc.signing.publicKey !== null)) {
+      errors.push(err("SCHEMA_VIOLATION", "signing presence contradicts publicKey"));
+    }
+    return errors;
+  },
+
+  "kernel-evidence-view@1": (doc) => {
+    const errors = [];
+    if (doc.preview === null) return errors;
+    const preview = doc.preview;
+    if (preview.totalBytes !== doc.artifact.byteLength) {
+      errors.push(err("SCHEMA_VIOLATION", "preview totalBytes contradicts the artifact byteLength"));
+    }
+    if (preview.returnedBytes > preview.requestedBytes || Buffer.byteLength(preview.text, "utf8") !== preview.returnedBytes) {
+      errors.push(err("SCHEMA_VIOLATION", "preview returnedBytes does not match the bounded UTF-8 text"));
+    }
+    if (preview.truncated !== (preview.returnedBytes < preview.totalBytes)) {
+      errors.push(err("SCHEMA_VIOLATION", "preview truncated flag contradicts returnedBytes and totalBytes"));
     }
     return errors;
   }
