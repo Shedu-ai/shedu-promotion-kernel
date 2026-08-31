@@ -249,8 +249,25 @@ test("a signing failure inside the boundary publishes nothing", () => {
   const dir = outDir();
   preseedCurrent(dir);
   // A signing key path that is a DIRECTORY is refused by the bounded key read;
-  // the worker reports failure → nothing published, preseed purged.
+  // the worker reports the exact failure before evaluation → nothing
+  // published, preseed purged. This must not degrade into a timeout under
+  // accumulated suite load.
   const r = SUP({ repoDir, contractBytes, outDir: dir, maxRuntimeSeconds: 60, signKeyPath: dir, workerEnv: ADMIT_ENV });
   assert.equal(r.ok, false);
+  assert.equal(r.reasonCode, "SIGNATURE_INVALID");
+  assert.equal(r.timedOut, undefined);
+  assert.equal(existsSync(join(dir, "current")), false);
+});
+
+test("malformed regular signing material is rejected before evaluation", () => {
+  const { repoDir, contractBytes } = target();
+  const dir = outDir();
+  const keyPath = join(mkdtempSync(join(tmpdir(), "shedu-invalid-key-")), "key.pem");
+  writeFileSync(keyPath, "not an Ed25519 private key\n");
+  preseedCurrent(dir);
+  const r = SUP({ repoDir, contractBytes, outDir: dir, maxRuntimeSeconds: 60, signKeyPath: keyPath, workerEnv: ADMIT_ENV });
+  assert.equal(r.ok, false);
+  assert.equal(r.reasonCode, "SIGNATURE_INVALID");
+  assert.equal(r.timedOut, undefined);
   assert.equal(existsSync(join(dir, "current")), false);
 });

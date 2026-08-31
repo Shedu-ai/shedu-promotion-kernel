@@ -3,7 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
 import { evaluateCandidate } from "./evaluate.mjs";
-import { signReceipt } from "./receipt.mjs";
+import { signReceipt, validateReceiptSigningKey } from "./receipt.mjs";
 import { committedAdmission, isAdmitted } from "./admission.mjs";
 import { readBoundedRegularFile } from "./bounded-file.mjs";
 
@@ -45,6 +45,23 @@ if (!isAdmitted(admission)) {
   process.exit(0);
 }
 
+// Admit optional signing material before starting the expensive evaluation.
+// Both this preflight and final signing remain inside the hard-deadline worker.
+// The exact bounded bytes are retained, then reparsed by signReceipt, so a
+// directory/FIFO/malformed/wrong-algorithm key fails without spending the
+// evaluation budget and no path can be substituted between the two stages.
+const keyPath = process.env.SHEDU_SIGN_KEY_FILE ?? null;
+let keyPem = null;
+if (keyPath) {
+  try {
+    keyPem = readBoundedRegularFile(keyPath, 64 * 1024).toString("utf8");
+    validateReceiptSigningKey(keyPem);
+  } catch {
+    writeFileSync(join(staging, "supervised-result.json"), Buffer.from(JSON.stringify({ ok: false, reasonCode: "SIGNATURE_INVALID" }), "utf8"));
+    process.exit(0);
+  }
+}
+
 const contractBytes = readFileSync(contractPath);
 const outcome = evaluateCandidate({ repoDir, contractBytes, outDir: staging });
 
@@ -52,18 +69,9 @@ let summary;
 if (!outcome.ok) {
   summary = { ok: false, reasonCode: outcome.reasonCode };
 } else {
-  // Sign inside the boundary if a key is supplied. The key read is bounded
-  // and refuses a non-regular file (e.g. a FIFO that could block).
-  const keyPath = process.env.SHEDU_SIGN_KEY_FILE ?? null;
-  if (keyPath) {
-    let keyBytes;
-    try {
-      keyBytes = readBoundedRegularFile(keyPath, 64 * 1024);
-    } catch {
-      writeFileSync(join(staging, "supervised-result.json"), Buffer.from(JSON.stringify({ ok: false, reasonCode: "SIGNATURE_INVALID" }), "utf8"));
-      process.exit(0);
-    }
-    const keyPem = keyBytes.toString("utf8");
+  // Final signing consumes the exact bytes admitted above and still occurs
+  // inside the supervised boundary.
+  if (keyPem !== null) {
     const signed = signReceipt(outcome.receipt, keyPem);
     writeFileSync(join(staging, "receipt.json"), Buffer.from(canonicalize(signed), "utf8"));
   }
