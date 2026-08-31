@@ -5,8 +5,6 @@ import {
   sign as cryptoSign,
   verify as cryptoVerify
 } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
 import { validateDocument } from "./contracts.mjs";
 import { reduceDisposition } from "./reducer.mjs";
@@ -53,14 +51,20 @@ function publicKeyFromHex(publicKeyHex) {
   });
 }
 
-export function verifyReceipt({ receiptBytes, planBytes, evidenceDir = null, expectedPublicKey = null }) {
+export function verifyReceipt({
+  receiptBytes,
+  planBytes,
+  evidenceDir = null,
+  evidenceMaxTotalBytes = Number.MAX_SAFE_INTEGER,
+  expectedPublicKey = null
+}) {
   const errors = [];
   const fail = (reasonCode, message) => errors.push({ reasonCode, message });
 
   const receiptDoc = validateDocument("promotion-receipt@1", receiptBytes);
-  if (!receiptDoc.ok) return { ok: false, errors: receiptDoc.errors, disposition: null };
+  if (!receiptDoc.ok) return { ok: false, errors: receiptDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
   const planDoc = validateDocument("compiled-policy-plan@1", planBytes);
-  if (!planDoc.ok) return { ok: false, errors: planDoc.errors, disposition: null };
+  if (!planDoc.ok) return { ok: false, errors: planDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
   const receipt = receiptDoc.value;
   const plan = planDoc.value;
   const planDigest = digestOfCanonical(plan);
@@ -121,16 +125,16 @@ export function verifyReceipt({ receiptBytes, planBytes, evidenceDir = null, exp
     fail("SIGNATURE_INVALID", "receipt is unsigned but a signing key was required");
   }
 
+  let evidence = null;
   if (evidenceDir !== null) {
-    const evidence = verifyEvidenceDir(evidenceDir);
+    evidence = verifyEvidenceDir(evidenceDir, { maxTotalBytes: evidenceMaxTotalBytes });
     if (!evidence.ok) {
       errors.push(...evidence.errors);
     } else {
       // The receipt pins the finalized index digest: an index regenerated to
       // cover for tampered results no longer matches the receipt.
       try {
-        const indexBytes = readFileSync(join(evidenceDir, "index.json"));
-        if (receipt.digests.evidenceIndex !== digestOfBytes(indexBytes)) {
+        if (receipt.digests.evidenceIndex !== digestOfBytes(evidence.indexBytes)) {
           fail("EVIDENCE_MUTATED", "evidence index does not match the digest pinned in the receipt");
         }
       } catch {
@@ -169,5 +173,13 @@ export function verifyReceipt({ receiptBytes, planBytes, evidenceDir = null, exp
     }
   }
 
-  return { ok: errors.length === 0, errors, disposition: errors.length === 0 ? receipt.disposition : null };
+  const ok = errors.length === 0;
+  return {
+    ok,
+    errors,
+    disposition: ok ? receipt.disposition : null,
+    receipt: ok ? receipt : null,
+    plan: ok ? plan : null,
+    evidenceIndex: ok ? (evidence?.index ?? null) : null
+  };
 }

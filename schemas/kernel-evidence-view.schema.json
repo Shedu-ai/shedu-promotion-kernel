@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-evidence-view.schema.json",
+  "title": "kernel-evidence-view@1",
+  "description": "Read-only metadata and optional bounded non-authoritative preview of one artifact from a verified published evidence store.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "verification", "artifact", "preview"],
+  "properties": {
+    "schemaVersion": {"const": "kernel-evidence-view@1"},
+    "verification": {"const": "VERIFIED"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactId", "checkId", "validatorId", "digest", "byteLength", "mediaType"],
+      "properties": {
+        "artifactId": {"$ref": "#/$defs/kebabId"},
+        "checkId": {"$ref": "#/$defs/kebabId"},
+        "validatorId": {"type": "string", "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64})$", "maxLength": 128},
+        "digest": {"$ref": "#/$defs/digest"},
+        "byteLength": {"type": "integer", "minimum": 0},
+        "mediaType": {"enum": ["application/json", "text/plain", "application/octet-stream"]}
+      }
+    },
+    "preview": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["encoding", "requestedBytes", "returnedBytes", "totalBytes", "truncated", "text"],
+          "properties": {
+            "encoding": {"const": "utf-8"},
+            "requestedBytes": {"type": "integer", "minimum": 1, "maximum": 65536},
+            "returnedBytes": {"type": "integer", "minimum": 0, "maximum": 65536},
+            "totalBytes": {"type": "integer", "minimum": 0},
+            "truncated": {"type": "boolean"},
+            "text": {"type": "string", "maxLength": 65536}
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "kebabId": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "maxLength": 128},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

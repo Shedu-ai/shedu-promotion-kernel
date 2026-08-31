@@ -1,17 +1,33 @@
 #!/usr/bin/env node
 
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
-import { beginSupervisedOperation, evaluateSupervised, publishedReceiptPath } from "./supervisor.mjs";
+import {
+  beginSupervisedOperation,
+  evaluateSupervised,
+  publishedReceiptPath,
+  remainingSupervisedOperationMs
+} from "./supervisor.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
 import { isAdmitted, committedAdmission } from "./admission.mjs";
 import { readBoundedRegularFile } from "./bounded-file.mjs";
+import {
+  AgentProjectionError,
+  MAX_EVIDENCE_PREVIEW_BYTES,
+  canonicalProjection,
+  inspectPublishedEvidence,
+  projectAgentStatus,
+  projectPublishedEvaluation
+} from "./agent-projection.mjs";
+
+const AGENT_PROJECTION_WORKER = fileURLToPath(new URL("./worker-agent-projection.mjs", import.meta.url));
 
 const FOUNDATION_PROBE = Object.freeze({
   schemaVersion: "harness-bench-subject-probe@1",
@@ -20,6 +36,7 @@ const FOUNDATION_PROBE = Object.freeze({
   capabilities: Object.freeze([
     "exact-argv@1",
     "immutable-subject-identity@1",
+    "kernel-agent-interface@1",
     "promotion-kernel-contract@1"
   ]),
   promotionEntrypointAvailable: false
@@ -28,6 +45,7 @@ const FOUNDATION_PROBE = Object.freeze({
 export const EXPERIMENTAL_CAPABILITIES = Object.freeze([
   "exact-argv@1",
   "immutable-subject-identity@1",
+  "kernel-agent-interface@1",
   "promotion-kernel-contract@1",
   "policy-pack-compiler@1",
   "mandatory-packs@1",
@@ -175,10 +193,12 @@ function runEvaluate(argv) {
   const operationClock = beginSupervisedOperation();
   const usage = () =>
     emitError("CLI_USAGE", [
-      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>]" }
+      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>] [--projection <full|agent>]" }
     ]);
-  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit"]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit", "--projection"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
+  const projection = flags.get("--projection") ?? "full";
+  if (projection !== "full" && projection !== "agent") return usage();
 
   const parsedOverrides = admissionOverridesFromFlags(flags);
   if (parsedOverrides.error) return emitError("CLI_USAGE", [{ reasonCode: "CLI_USAGE", message: parsedOverrides.error }]);
@@ -232,15 +252,98 @@ function runEvaluate(argv) {
   }
   if (!supervised.ok) return emitError(supervised.reasonCode, [{ reasonCode: supervised.reasonCode, message: supervised.message ?? "" }]);
 
+  if (projection === "agent") {
+    const remainingMs = remainingSupervisedOperationMs(operationClock, contract.value.maxRuntimeSeconds);
+    if (remainingMs < 1) {
+      return emitError("DEADLINE_EXCEEDED", [
+        { reasonCode: "DEADLINE_EXCEEDED", message: `evaluation and agent projection exceeded the ${contract.value.maxRuntimeSeconds}s whole-operation ceiling` }
+      ]);
+    }
+    const projected = spawnSync(process.execPath, [AGENT_PROJECTION_WORKER, outDir], {
+      encoding: "utf8",
+      timeout: remainingMs,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { PATH: process.env.PATH ?? "" },
+      windowsHide: true
+    });
+    if (projected.error?.code === "ETIMEDOUT" || remainingSupervisedOperationMs(operationClock, contract.value.maxRuntimeSeconds) < 1) {
+      return emitError("DEADLINE_EXCEEDED", [
+        { reasonCode: "DEADLINE_EXCEEDED", message: `evaluation and agent projection exceeded the ${contract.value.maxRuntimeSeconds}s whole-operation ceiling` }
+      ]);
+    }
+    if (projected.status !== 0) {
+      let reasonCode = "INFRASTRUCTURE_FAILURE";
+      try {
+        reasonCode = JSON.parse(projected.stderr).reasonCode ?? reasonCode;
+      } catch {
+        // A malformed projection-worker error is an infrastructure failure.
+      }
+      return emitError(reasonCode, [{ reasonCode, message: "agent projection of the published bundle failed" }]);
+    }
+    process.stdout.write(projected.stdout);
+    return 0;
+  }
+
   let receiptBytes;
   try {
-    receiptBytes = readFileSync(publishedReceiptPath(outDir));
+    receiptBytes = readBoundedRegularFile(publishedReceiptPath(outDir), 1_048_576);
   } catch {
-    return emitError("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "supervised evaluation produced no receipt" }]);
+    return emitError("INFRASTRUCTURE_FAILURE", [{ reasonCode: "INFRASTRUCTURE_FAILURE", message: "supervised evaluation produced no bounded regular receipt" }]);
+  }
+  if (remainingSupervisedOperationMs(operationClock, contract.value.maxRuntimeSeconds) < 1) {
+    return emitError("DEADLINE_EXCEEDED", [
+      { reasonCode: "DEADLINE_EXCEEDED", message: `evaluation exceeded the ${contract.value.maxRuntimeSeconds}s whole-operation ceiling during receipt publication` }
+    ]);
   }
   process.stdout.write(receiptBytes);
   process.stdout.write("\n");
   return 0;
+}
+
+function runStatus(argv) {
+  const usage = () => emitError("CLI_USAGE", [
+    { reasonCode: "CLI_USAGE", message: "usage: status [--out <evaluation-output-directory>]" }
+  ]);
+  const flags = parseFlags(argv, ["--out"]);
+  if (!flags) return usage();
+  try {
+    let projection;
+    if (flags.has("--out")) {
+      projection = projectPublishedEvaluation(flags.get("--out"));
+    } else {
+      const admission = committedAdmission();
+      projection = projectAgentStatus({ admission, probe: subjectProbe(admission), kernelRelease: KERNEL_RELEASE });
+    }
+    process.stdout.write(canonicalProjection(projection));
+    return 0;
+  } catch (error) {
+    const reasonCode = error instanceof AgentProjectionError ? error.reasonCode : "INFRASTRUCTURE_FAILURE";
+    return emitError(reasonCode, [{ reasonCode, message: error?.message ?? "status projection failed" }]);
+  }
+}
+
+function runInspectEvidence(argv) {
+  const usage = () => emitError("CLI_USAGE", [
+    { reasonCode: "CLI_USAGE", message: `usage: inspect-evidence --out <evaluation-output-directory> --artifact <artifact-id> [--max-bytes <1-${MAX_EVIDENCE_PREVIEW_BYTES}>]` }
+  ]);
+  const flags = parseFlags(argv, ["--out", "--artifact", "--max-bytes"]);
+  if (!flags || !flags.has("--out") || !flags.has("--artifact")) return usage();
+  const artifactId = flags.get("--artifact");
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(artifactId) || artifactId.length > 128) return usage();
+  let maxBytes = null;
+  if (flags.has("--max-bytes")) {
+    const raw = flags.get("--max-bytes");
+    if (!/^[1-9][0-9]*$/.test(raw)) return usage();
+    maxBytes = Number(raw);
+    if (!Number.isSafeInteger(maxBytes) || maxBytes > MAX_EVIDENCE_PREVIEW_BYTES) return usage();
+  }
+  try {
+    process.stdout.write(canonicalProjection(inspectPublishedEvidence(flags.get("--out"), artifactId, maxBytes)));
+    return 0;
+  } catch (error) {
+    const reasonCode = error instanceof AgentProjectionError ? error.reasonCode : "INFRASTRUCTURE_FAILURE";
+    return emitError(reasonCode, [{ reasonCode, message: error?.message ?? "evidence inspection failed" }]);
+  }
 }
 
 function runVerifyReceipt(argv) {
@@ -292,6 +395,7 @@ function runConformanceCommand(argv) {
 }
 
 export function main(argv = process.argv.slice(2)) {
+  if (argv.length === 0) return runStatus([]);
   if (argv.length === 1 && argv[0] === "--subject-probe") {
     process.stdout.write(`${JSON.stringify(subjectProbe(committedAdmission()))}\n`);
     return 0;
@@ -299,6 +403,8 @@ export function main(argv = process.argv.slice(2)) {
 
   if (argv[0] === "compile") return runCompile(argv.slice(1));
   if (argv[0] === "evaluate") return runEvaluate(argv.slice(1));
+  if (argv[0] === "status") return runStatus(argv.slice(1));
+  if (argv[0] === "inspect-evidence") return runInspectEvidence(argv.slice(1));
   if (argv[0] === "verify-receipt") return runVerifyReceipt(argv.slice(1));
   if (argv[0] === "conformance") return runConformanceCommand(argv.slice(1));
 

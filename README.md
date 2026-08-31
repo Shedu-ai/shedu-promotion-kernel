@@ -96,14 +96,25 @@ Exploration, idea generation, brief/specification authoring, model selection, da
 ## CLI surfaces
 
 ```sh
+node src/cli.mjs
+node src/cli.mjs status [--out <evaluation-output-dir>]
 node src/cli.mjs compile --contract <file> --repo <dir>
-node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>]
+node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>] [--projection <full|agent>]
+node src/cli.mjs inspect-evidence --out <evaluation-output-dir> --artifact <artifact-id> [--max-bytes <1-65536>]
 node src/cli.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
 node src/cli.mjs conformance --out <dir>
 node src/cli.mjs --subject-probe
 ```
 
 Each emits machine-readable JSON on stdout and machine errors on stderr.
+No-argument `status` reports the subject's honest admission state. `status --out`
+and `inspect-evidence` first verify the complete atomically published receipt,
+plan, work contract, evidence index, and evidence objects before returning a
+bounded agent-facing projection. These projections are read-only navigation:
+they cannot admit the kernel, change scope, alter a disposition, replace a
+receipt, or authorize promotion. `evaluate` continues to emit the complete
+receipt by default; `--projection agent` changes stdout presentation only and
+leaves the same authoritative bundle on disk.
 
 ## Install and try a policy pack
 

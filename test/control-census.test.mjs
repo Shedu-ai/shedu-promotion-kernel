@@ -109,6 +109,17 @@ test("the architecture fence forbids constructing admitted/promotable outcomes o
   assert.equal(isAdmitted({ admitted: true, status: "EXPERIMENTAL" }), false);
 });
 
+test("the architecture fence keeps agent projections downstream of authority modules", () => {
+  assert.equal(runArchitectureFence(SRC).ok, true);
+  const tmpSrc = mkdtempSync(join(tmpdir(), "shedu-src-projection-fence-"));
+  cpSync(SRC, tmpSrc, { recursive: true });
+  appendFileSync(join(tmpSrc, "reducer.mjs"), '\nimport "./agent-projection.mjs";\n');
+  const fence = runArchitectureFence(tmpSrc);
+  assert.equal(fence.ok, false);
+  assert.ok(fence.violations.some((violation) =>
+    violation.ruleId === "projection-authority-dependency" && violation.file === "src/reducer.mjs"));
+});
+
 test("the census consumes a genuine production trace and fails if a productionObservable control is unobserved", async () => {
   const { evaluateCandidate } = await import("../src/evaluate.mjs");
   const { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } = await import("./fixtures.mjs");

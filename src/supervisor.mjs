@@ -22,6 +22,16 @@ export function beginSupervisedOperation() {
   return token;
 }
 
+// Read-only remaining-budget projection for CLI finalization. The start time
+// is kept in the module-private WeakMap, so a caller cannot invent or rewind
+// it. This lets optional stdout presentation remain inside the same hard
+// operation budget without exposing a mutable timestamp.
+export function remainingSupervisedOperationMs(operationClock, maxRuntimeSeconds) {
+  const started = OPERATION_CLOCKS.get(operationClock);
+  if (started === undefined || !Number.isSafeInteger(maxRuntimeSeconds) || maxRuntimeSeconds < 1) return 0;
+  return Math.max(0, Math.floor(maxRuntimeSeconds * 1000 - (performance.now() - started)));
+}
+
 function randomToken() {
   return `${process.pid}-${randomBytes(16).toString("hex")}`;
 }
@@ -114,7 +124,6 @@ function purgeVersions(outDir) {
 export function evaluateSupervised({ repoDir, contractBytes, outDir, maxRuntimeSeconds, signKeyPath = null, workerEnv = {}, operationClock = null }) {
   const hardMs = maxRuntimeSeconds * 1000;
   const started = OPERATION_CLOCKS.get(operationClock) ?? performance.now();
-  if (operationClock !== null && typeof operationClock === "object") OPERATION_CLOCKS.delete(operationClock);
   const elapsed = () => Math.round(performance.now() - started);
   mkdirSync(outDir, { recursive: true });
   const token = randomToken();
