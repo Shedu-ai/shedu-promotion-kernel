@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { digestOfBytes } from "./canonical-json.mjs";
+import { validateDocument } from "./contracts.mjs";
 
 // Control point: the hard whole-evaluation deadline supervisor with atomic
 // bundle publication.
@@ -184,9 +185,34 @@ export function evaluateSupervised({ repoDir, contractBytes, outDir, maxRuntimeS
       return abort({ ok: false, supervised: true, reasonCode: summary.reasonCode ?? "INFRASTRUCTURE_FAILURE", reasons: summary.reasons, elapsedMs });
     }
 
+    // Independently validate the worker's receipt and bind its declared
+    // artifactRoot back to the exact work contract supplied to this
+    // supervisor. The worker cannot choose a different evidence path merely by
+    // returning a self-consistent summary.
+    let receiptDocument;
+    let contractDocument;
+    try {
+      receiptDocument = validateDocument(
+        "promotion-receipt@1", readFileSync(join(versionDir, "receipt.json")));
+      contractDocument = validateDocument("work-contract@1", contractBytes);
+    } catch {
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "worker receipt or supervised contract is unreadable", elapsedMs });
+    }
+    if (
+      !receiptDocument.ok ||
+      !contractDocument.ok ||
+      receiptDocument.value.artifactRoot !== contractDocument.value.artifactRoot ||
+      receiptDocument.value.disposition !== summary.disposition
+    ) {
+      return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "worker receipt is not bound to the supervised contract and summary", elapsedMs });
+    }
+
     // Verify the exact required bundle before publishing; a worker cannot make
-    // an empty or partial manifest authoritative.
-    const requiredBundle = ["receipt.json", "plan.json", join("artifacts", "evidence", "index.json")];
+    // an empty or partial manifest authoritative. The evidence location is the
+    // schema-validated, contract-bound artifactRoot — never a hardcoded path.
+    const evidenceIndexRel = join(
+      receiptDocument.value.artifactRoot.replace(/\/+$/, ""), "evidence", "index.json");
+    const requiredBundle = ["receipt.json", "plan.json", evidenceIndexRel];
     if (
       summary.bundle === null ||
       typeof summary.bundle !== "object" ||

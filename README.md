@@ -78,6 +78,15 @@ The promotion pipeline is implemented and has passed repeated adversarial and cr
 
 The public repository intentionally remains `FOUNDATION_ONLY` because it cannot authorize itself. Promotion becomes available only when an independent authority certifies a specific clean commit using an externally controlled signing key and supplies the corresponding pinned attestation.
 
+`FOUNDATION_ONLY` describes the checkout **without external authority**; it
+does not mean the promotion engine is unfinished. An operator distribution may
+legitimately report `EXPERIMENTAL` for the same exact commit when every launch
+supplies a verified detached attestation, its independently pinned public key,
+and the attested commit id. Agents should follow `OBTAIN_EXTERNAL_ADMISSION`
+rather than treating the unauthenticated status as a permanent capability
+absence. If no trusted operator supplies those three values, evaluation remains
+correctly unavailable.
+
 Until then, the repository can compile policies, run conformance tests, verify its isolation mechanisms, and demonstrate the complete decision pipeline—but it correctly refuses to issue authoritative promotion approvals.
 
 ## Promotion path
