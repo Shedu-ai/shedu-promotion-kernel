@@ -74,7 +74,13 @@ if (!outcome.ok) {
 
   // Bundle manifest: digests of the published artifacts, so the supervisor
   // can verify the bundle is internally consistent before publishing.
-  const bundleFiles = ["receipt.json", "plan.json", join("artifacts", "evidence", "index.json")];
+  // The evidence member is contract-declared through artifactRoot. A fixed
+  // `artifacts/` path would make a valid non-default root evaluate correctly
+  // and then fail during publication. The receipt has already passed the
+  // closed promotion-receipt schema and binds the work-contract value.
+  const evidenceIndexRel = join(
+    outcome.receipt.artifactRoot.replace(/\/+$/, ""), "evidence", "index.json");
+  const bundleFiles = ["receipt.json", "plan.json", evidenceIndexRel];
   const bundle = {};
   for (const rel of bundleFiles) {
     bundle[rel] = digestOfBytes(readFileSync(join(staging, rel)));

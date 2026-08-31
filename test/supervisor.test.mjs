@@ -63,11 +63,11 @@ before(async () => {
   ({ evaluateSupervised: SUP } = await import(pathToFileURL(SUP_PATH).href));
 });
 
-function target() {
+function target(overrides = {}) {
   const t = buildTargetRepo();
   writeRepoFile(t.repoDir, "src/feature.mjs", "export const feature = 2;\n");
   const candidate = commitAll(t.repoDir, "feature");
-  return { repoDir: t.repoDir, contractBytes: contractBytesOf(t.contractFor(candidate)) };
+  return { repoDir: t.repoDir, contractBytes: contractBytesOf(t.contractFor(candidate, overrides)) };
 }
 
 // Preseed a published bundle at the atomic location so purge behaviour is
@@ -97,6 +97,21 @@ test("a genuine supervised evaluation publishes one internally consistent digest
     evidenceDir: join(dir, "current", "artifacts", "evidence")
   });
   assert.equal(verification.ok, true, JSON.stringify(verification.errors));
+});
+
+test("supervised publication consumes the contract-declared non-default artifactRoot", () => {
+  const artifactRoot = ".shedu/artifacts/";
+  const { repoDir, contractBytes } = target({ artifactRoot });
+  const dir = outDir();
+  const r = SUP({ repoDir, contractBytes, outDir: dir, maxRuntimeSeconds: 600, workerEnv: ADMIT_ENV });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.timedOut, false);
+  const receipt = JSON.parse(readFileSync(published(dir), "utf8"));
+  assert.equal(receipt.artifactRoot, artifactRoot);
+  assert.ok(existsSync(join(dir, "current", ".shedu", "artifacts", "evidence", "index.json")));
+  assert.deepEqual(
+    Object.keys(r.bundle).sort(),
+    ["receipt.json", "plan.json", join(".shedu", "artifacts", "evidence", "index.json")].sort());
 });
 
 test("publication is atomic: `current` is a symlink flipped onto a complete bundle, and re-publishing replaces it wholesale", () => {
