@@ -1,27 +1,97 @@
 # Shedu Promotion Kernel
 
-Shedu Promotion Kernel is a model-independent, evidence-bound gate for AI-generated software changes. Its job is deliberately narrow: decide whether an immutable candidate may be promoted into a target repository.
+Shedu Promotion Kernel is a model-independent approval gate for AI-generated code. It decides one question:
 
-Shedu Promotion Kernel is a mechanical approval gate for AI-generated code. It evaluates an immutable candidate against an authorized work contract and selected policy packs. It verifies identity and scope, runs required validation, checks for conflicts with existing capabilities, detects orphaned controls, enforces repository-specific architecture rules, and confirms that all required evidence is complete and untampered. It then issues a machine-verifiable PROMOTABLE or BLOCKED receipt.
-The kernel does not generate code or decide what should be built. It determines whether the implementation stayed within its authority and satisfied the mechanical conditions required for promotion.
+> Did this exact, immutable candidate satisfy its authorized requirements and remain within its permitted scope?
 
-> **Status: FOUNDATION_ONLY.** The system is built and has passed several rounds of adversarial testing, but this public version is not yet authorized to approve software changes.
-It runs checks in a tightly controlled environment: programs are verified before execution, network access and file changes are blocked, resource and time limits are enforced, and critical failures stop the process. Every decision is backed by tamper-evident evidence and can be independently verified or digitally signed.
-Before the kernel can enter experimental use, an independent authority must certify a specific clean version using an external signing key. The public repository cannot certify itself, so it correctly refuses to issue promotion approvals.
-The secure execution environment supports native macOS isolation and Linux through an immutable, digest-pinned OCI container. Both backends enforce one target process at a time; multi-process target test suites remain unsupported rather than receiving weaker isolation.
+The kernel does not generate code, choose a solution, or decide what should be built. Coding agents— (ie Grok build, Codex, Claude Code, or local models)—work outside the kernel. They submit completed candidates for mechanical evaluation.
+
+## What the kernel checks
+
+For every candidate, the kernel mechanically verifies:
+
+- **Identity:** The evaluated Git commit is the exact candidate declared in the work contract.
+- **Authority:** Policies, validators, architecture rules, and permitted scope come from a frozen, trusted base commit—not from files rewritten by the candidate.
+- **Scope:** Every changed file is classified as writable, read-only, forbidden, or unclassified. Unauthorized changes block promotion.
+- **Prior art:** New work is checked against registered capabilities so it cannot silently duplicate, replace, or conflict with an existing mechanism.
+- **Required validation:** The exact commands declared by the governing policy are executed with their original argument arrays—without shell parsing or controller substitutions.
+- **Architecture:** Repository-specific structural rules are evaluated by registered validators.
+- **Orphan closure:** Registered controls must be implemented, dispatched, exercised, evidenced, and consumed. Missing wiring or unregistered mechanisms block promotion.
+- **Resource enforcement:** Network access, filesystem writes, execution time, output size, artifact size, and process creation are mechanically restricted.
+- **Evidence integrity:** Test results and other evidence are content-addressed and bound to the candidate, compiled plan, execution environment, and final disposition.
+- **Completeness:** Missing, malformed, skipped, duplicated, or unverifiable blocking results fail closed.
+- **Final disposition:** A fixed reducer—not the coding agent—produces `PROMOTABLE` or `BLOCKED`.
+
+Sandboxed validation: When the kernel executes candidate validation—not while an agent develops the code—it denies network access and host filesystem writes and enforces fixed runtime, output, evidence, and task ceilings. Strict checks prohibit child processes; authorized Linux test suites receive a mechanically bounded process tree. These restrictions prevent candidate-controlled code from altering or escaping its own evaluation.
+
+The resulting receipt can be verified offline and optionally signed with Ed25519.
+
+## How the kernel checks it
+
+The kernel compiles the work contract and policy packs into an immutable execution plan. That plan binds:
+
+- the candidate and trusted base commits;
+- exact file permissions;
+- exact validators and commands;
+- policy and architecture digests;
+- execution phases;
+- resource ceilings;
+- the enforcing sandbox authority; and
+- the evidence required for each decision.
+
+Commands run without a shell in a controlled environment. Executables are resolved through a closed toolchain and verified by content digest before use.
+
+On macOS, strict checks run under the native sandbox with child-process creation denied. On Linux, checks run inside an immutable, digest-pinned OCI image with:
+
+- no network;
+- a read-only filesystem;
+- dropped capabilities;
+- `no-new-privileges`;
+- a checked-in seccomp policy;
+- exact cgroup task ceilings; and
+- a trusted PID-1 supervisor that terminates and reaps the complete process tree.
+
+The Linux `STANDARD_TEST` profile supports realistic, numerically bounded multi-process Node test suites. Users and coding agents do not configure Docker, seccomp, cgroups, or process limits themselves.
+
+## How this differs from running a normal harness inside Codex or Claude Code
+
+A normal coding-agent harness usually trusts the agent controlling the run. The agent may choose which commands to execute, alter arguments, retry under different conditions, interpret incomplete output, overlook skipped checks, or summarize its own work as successful. The tests may be mechanical, but the orchestration and final judgment still depend on the same model that produced the code.
+
+Shedu Promotion Kernel treats the coding agent as an untrusted submitter.
+
+The agent cannot:
+
+- change the governing policy for its own candidate;
+- expand its authorized write scope;
+- substitute validators or executables;
+- rewrite commands during execution;
+- increase resource limits;
+- suppress required checks;
+- convert missing evidence into success; or
+- override the final disposition.
+
+This separation allows Codex, Claude Code, local models, or future coding agents to be exchanged without making any one controller the authority over its own work.
+
+## Status: `FOUNDATION_ONLY`
+
+The promotion pipeline is implemented and has passed repeated adversarial and cross-platform testing. Strict macOS execution and bounded multi-process Linux OCI execution are operational.
+
+The public repository intentionally remains `FOUNDATION_ONLY` because it cannot authorize itself. Promotion becomes available only when an independent authority certifies a specific clean commit using an externally controlled signing key and supplies the corresponding pinned attestation.
+
+Until then, the repository can compile policies, run conformance tests, verify its isolation mechanisms, and demonstrate the complete decision pipeline—but it correctly refuses to issue authoritative promotion approvals.
 
 ## Promotion path
 
-The kernel is limited to six stages:
+The kernel performs six stages:
 
-1. Accept an exact work contract and target identity.
-2. Bind exact commands, roles, policies, and permitted writes.
-3. Execute in an isolated workspace.
-4. Freeze an immutable candidate commit or tree.
-5. Run deterministic validation and independent outcome review.
-6. Emit a signed `PROMOTABLE` or `BLOCKED` receipt.
+1. Accept an exact work contract and immutable target identity.
+2. Compile and bind the governing policies, commands, scope, and resource limits.
+3. Execute the required checks in an enforced sandbox.
+4. Verify candidate stability and freeze the resulting evidence.
+5. Mechanically validate completeness, integrity, architecture, prior art, and orphan closure.
+6. Emit an offline-verifiable `PROMOTABLE` or `BLOCKED` receipt.
 
-Exploration, idea generation, brief/spec/prompt authoring, provider selection experiments, dashboards, and product-specific governance remain outside the kernel.
+Exploration, idea generation, brief/specification authoring, model selection, dashboards, and product-specific governance remain outside the kernel.
 
 ## CLI surfaces
 
