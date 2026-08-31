@@ -30,15 +30,29 @@ export function generateSigningKeyPem() {
   return privateKey.export({ type: "pkcs8", format: "pem" });
 }
 
-export function signReceipt(receipt, privateKeyPem) {
+function parseReceiptSigningKey(privateKeyPem) {
   const key = createPrivateKey(privateKeyPem);
   const jwk = createPublicKey(key).export({ format: "jwk" });
   if (jwk.crv !== "Ed25519") throw new Error("receipt signing requires an Ed25519 key");
+  return { key, publicKey: Buffer.from(jwk.x, "base64url").toString("hex") };
+}
+
+// Validate signing material before an expensive evaluation begins. The worker
+// retains the exact bounded bytes and signReceipt reparses those same bytes at
+// finalization, so preflight cannot substitute a different key or move signing
+// outside the supervised process.
+export function validateReceiptSigningKey(privateKeyPem) {
+  parseReceiptSigningKey(privateKeyPem);
+  return true;
+}
+
+export function signReceipt(receipt, privateKeyPem) {
+  const { key, publicKey } = parseReceiptSigningKey(privateKeyPem);
   return {
     ...receipt,
     signing: {
       algorithm: "ed25519",
-      publicKey: Buffer.from(jwk.x, "base64url").toString("hex"),
+      publicKey,
       signature: cryptoSign(null, unsignedReceiptBytes(receipt), key).toString("hex")
     }
   };
