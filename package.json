@@ -9,9 +9,14 @@
     "node": ">=22"
   },
   "bin": {
-    "shedu-promotion-kernel": "src/cli.mjs"
+    "shedu-promotion-kernel": "src/cli.mjs",
+    "shedu-kernel-experimental": "scripts/experimental-kernel.mjs"
   },
   "scripts": {
+    "experimental": "node scripts/experimental-kernel.mjs",
+    "experimental:doctor": "node scripts/experimental-kernel.mjs doctor",
+    "experimental:setup": "node scripts/experimental-kernel.mjs setup",
+    "experimental:status": "node scripts/experimental-kernel.mjs status",
     "status": "node src/cli.mjs status",
     "subject:probe": "node src/cli.mjs --subject-probe",
     "sandbox:linux:pull": "node scripts/pull-linux-sandbox-image.mjs",

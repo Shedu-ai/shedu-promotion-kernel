@@ -64,14 +64,17 @@ test("the installed-style bin symlink executes the CLI instead of silently doing
   }
 });
 
-test("public README links the installation guide and executable sample", () => {
+test("public README links the admitted distribution, installation guide, and executable sample", () => {
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const install = readFileSync(new URL("../docs/INSTALLATION.md", import.meta.url), "utf8");
   assert.match(readme, /\[the installation guide\]\(docs\/INSTALLATION\.md\)/);
   assert.match(readme, /\[Node source-hygiene sample\]\(examples\/node-source-hygiene\/README\.md\)/);
   assert.match(install, /npm run verify:sample-policy/);
-  assert.match(install, /FULL_40_CHARACTER_COMMIT/);
+  assert.match(install, /v0\.4\.0-experimental\.1/);
+  assert.match(install, /npm run experimental:doctor/);
+  assert.match(install, /shedu-kernel-experimental evaluate/);
+  assert.match(install, /69253a78f095572b727c2336644b03fbff5476c8/);
   assert.match(install, /FOUNDATION_ONLY/);
-  assert.match(install, /npm run sandbox:linux:pull/);
+  assert.match(install, /npm run experimental -- sandbox:linux:pull/);
   assert.match(install, /sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5/);
 });

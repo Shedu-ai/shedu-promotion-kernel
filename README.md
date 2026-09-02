@@ -72,22 +72,32 @@ The agent cannot:
 
 This separation allows Codex, Claude Code, local models, or future coding agents to be exchanged without making any one controller the authority over its own work.
 
-## Status: `FOUNDATION_ONLY`
+## Status: public experimental activation available
 
-The promotion pipeline is implemented and has passed repeated adversarial and cross-platform testing. Strict macOS execution and bounded multi-process Linux OCI execution are operational.
+The kernel can now evaluate real candidates and issue `PROMOTABLE` or `BLOCKED`
+receipts through the public experimental launcher. Harness Bench independently
+certified kernel commit `69253a78f095572b727c2336644b03fbff5476c8`:
+247 tests passed, all 10 conformance cases passed, the generated conformance
+record reproduced byte-for-byte, and the external probe reported
+`EXPERIMENTAL` with promotion available.
 
-The public repository intentionally remains `FOUNDATION_ONLY` because it cannot authorize itself. Promotion becomes available only when an independent authority certifies a specific clean commit using an externally controlled signing key and supplies the corresponding pinned attestation.
+```sh
+git clone https://github.com/Shedu-ai/shedu-promotion-kernel.git
+cd shedu-promotion-kernel
+git checkout v0.4.0-experimental.1
+npm run experimental:doctor
+```
 
-`FOUNDATION_ONLY` describes the checkout **without external authority**; it
-does not mean the promotion engine is unfinished. An operator distribution may
-legitimately report `EXPERIMENTAL` for the same exact commit when every launch
-supplies a verified detached attestation, its independently pinned public key,
-and the attested commit id. Agents should follow `OBTAIN_EXTERNAL_ADMISSION`
-rather than treating the unauthenticated status as a permanent capability
-absence. If no trusted operator supplies those three values, evaluation remains
-correctly unavailable.
+The launcher verifies the signed certification, installs only that exact
+certified commit and tree into a detached cache, removes its Git remote, checks
+that it is clean, and supplies the public admission evidence automatically.
+Users do not copy a key, attestation path, or commit id.
 
-Until then, the repository can compile policies, run conformance tests, verify its isolation mechanisms, and demonstrate the complete decision pipeline—but it correctly refuses to issue authoritative promotion approvals.
+The ordinary source entrypoint still reports `FOUNDATION_ONLY` when used
+without the launcher. That is intentional: mutable source cannot certify
+itself. `FOUNDATION_ONLY` now describes an unauthenticated checkout, not the
+availability of the public experimental product. The signing key remains
+external and private; only its public key and signed evidence are published.
 
 ## Promotion path
 
@@ -103,6 +113,20 @@ The kernel performs six stages:
 Exploration, idea generation, brief/specification authoring, model selection, dashboards, and product-specific governance remain outside the kernel.
 
 ## CLI surfaces
+
+Use the admitted public launcher for evaluation:
+
+```sh
+node scripts/experimental-kernel.mjs doctor
+node scripts/experimental-kernel.mjs status
+node scripts/experimental-kernel.mjs compile --contract <file> --repo <dir>
+node scripts/experimental-kernel.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>] [--projection <full|agent>]
+node scripts/experimental-kernel.mjs inspect-evidence --out <evaluation-output-dir> --artifact <artifact-id> [--max-bytes <1-65536>]
+node scripts/experimental-kernel.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
+```
+
+The lower-level unauthenticated source surfaces remain available for
+development and independent verification:
 
 ```sh
 node src/cli.mjs
@@ -127,10 +151,10 @@ leaves the same authoritative bundle on disk.
 
 ## Install and try a policy pack
 
-The current distribution is installed directly from an immutable Git commit; it has no
-runtime dependencies and does not connect to a model provider. Follow
-[the installation guide](docs/INSTALLATION.md) for a pinned source checkout or a pinned
-Git dependency, supported-platform boundaries, and the external-admission requirement.
+The distribution has no runtime dependencies and does not connect to a model
+provider. Follow [the installation guide](docs/INSTALLATION.md) for the public
+experimental launcher, supported-platform boundaries, and advanced independent
+verification.
 
 The repository includes a complete, compiler-verified
 [Node source-hygiene sample](examples/node-source-hygiene/README.md): a declarative pack,

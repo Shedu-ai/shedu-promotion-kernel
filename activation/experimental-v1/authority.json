@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "promotion-kernel-activation-authority@1",
+  "authorityId": "bench-kernel-attestor-2026-08",
+  "algorithm": "ed25519",
+  "publicKey": "146566b79911ee63307b287c0df8ad726da12c94fec15ae104fd563ae0857555",
+  "status": "ACTIVE"
+}
