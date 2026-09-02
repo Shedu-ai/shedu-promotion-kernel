@@ -23,6 +23,11 @@ jobs:
             os: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The activation-distribution test materializes the separately
+          # certified ancestor commit from the local repository. A shallow
+          # checkout would make that exact authority unavailable.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: "22"

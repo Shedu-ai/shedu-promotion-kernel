@@ -1,76 +1,100 @@
 # Installation
 
-Shedu Promotion Kernel is currently distributed from its public Git repository. It is
-not yet published to the npm registry. Pin a full 40-character commit so installation
-does not silently follow a moving branch.
+The public experimental distribution is usable on macOS and Linux. It has no
+runtime package dependencies, model provider, API key, database, or hosted
+service.
 
-## Requirements and honest operating boundary
+## Requirements
 
 - Node.js 22 or newer.
-- Git installed at one of the kernel's closed authority paths.
-- No provider account, model API key, database, or network service is used by the kernel.
-- Schema validation, policy compilation, receipt verification, the subject probe, and
-  the test suite are provider-free.
-- Target-command evaluation supports either macOS with enforceable `sandbox-exec`, or
-  Linux with Docker Engine and the kernel's immutable OCI image installed by digest.
-  Other platforms fail closed with `SANDBOX_UNAVAILABLE`.
-- Target commands may use only the kernel's exact Node interpreter, run without a shell,
-  receive no network access, and cannot fork (`maxProcesses` is exactly `1`).
-- The public checkout intentionally reports `FOUNDATION_ONLY`. `evaluate` remains blocked
-  until a separate trusted attestor supplies a signed attestation, its pinned Ed25519
-  public key, and the exact attested kernel commit. Installation alone cannot elevate it.
+- Git at one of the distribution's fixed system paths.
+- macOS with `sandbox-exec`, or Linux with Docker Engine at `/usr/bin/docker`
+  or `/usr/local/bin/docker`.
 
-## Option A: pinned source checkout
+Other platforms fail closed with `SANDBOX_UNAVAILABLE`. On Linux the kernel
+uses an immutable OCI image and bounded process tree. On macOS strict target
+commands run without child-process creation.
+
+## Recommended: public experimental launcher
 
 ```sh
 git clone https://github.com/Shedu-ai/shedu-promotion-kernel.git
 cd shedu-promotion-kernel
-git checkout --detach <FULL_40_CHARACTER_COMMIT>
-node --version
-npm test
-npm run verify:sample-policy
-npm run subject:probe
+git checkout v0.4.0-experimental.1
+npm run experimental:doctor
 ```
 
-No dependency-install step is required: the package has zero runtime and development
-dependencies. A valid public installation still reports `FOUNDATION_ONLY`; that is the
-expected fail-closed result without external admission material.
+`experimental:doctor` verifies the public Harness Bench signatures and file
+digests, installs the exact certified kernel commit into an external cache,
+checks its commit, tree, cleanliness, and removed remote, and asks that kernel
+for its own admission state. Success prints machine-readable JSON containing:
 
-### Linux: install the pinned sandbox image
+```json
+{
+  "ok": true,
+  "admission": {
+    "implementationStatus": "EXPERIMENTAL",
+    "promotionEntrypointAvailable": true,
+    "authorityId": "bench-kernel-attestor-2026-08"
+  }
+}
+```
 
-On Linux, Docker must be available at `/usr/bin/docker` or
-`/usr/local/bin/docker` and connected to the local Linux daemon socket. Install
-the one admitted image before running target-command tests or evaluation:
+No private key is downloaded or required. The distribution contains only the
+signed certification, detached attestation, pinned public key, and immutable
+kernel identity. The launcher owns those values and rejects attempts to
+replace them on the command line.
+
+The usable command surface is:
 
 ```sh
-npm run sandbox:linux:pull
+npm run experimental -- setup
+npm run experimental -- doctor
+npm run experimental -- status
+npm run experimental -- probe
+npm run experimental -- compile --contract /absolute/work-contract.json --repo /absolute/target-repository
+npm run experimental -- evaluate --contract /absolute/work-contract.json --repo /absolute/target-repository --out /absolute/output-directory
+npm run experimental -- verify-receipt --receipt /absolute/receipt.json --plan /absolute/plan.json --evidence /absolute/evidence
+npm run experimental -- inspect-evidence --out /absolute/output-directory --artifact <artifact-id>
 ```
 
-The installer resolves this exact immutable authority and prints its verified
-local image identity:
+The equivalent installed binary is `shedu-kernel-experimental`.
+
+### Linux: install the immutable sandbox image
+
+Run this once before target-command evaluation:
+
+```sh
+npm run experimental -- sandbox:linux:pull
+```
+
+It installs only:
 
 ```text
 docker.io/library/node@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 ```
 
-Evaluation always uses `--pull never`. A missing image, changed runtime, remote
-daemon override, non-Linux daemon, failed isolation probe, or image identity
-drift produces `SANDBOX_UNAVAILABLE`; evaluation never downloads or substitutes
-an image on its own.
+Evaluation uses `--pull never`. A missing image, substituted Docker binary,
+remote daemon override, non-Linux daemon, isolation-probe failure, or identity
+drift produces `SANDBOX_UNAVAILABLE` instead of weakening isolation.
 
-## Option B: pinned target-repository dependency
-
-From the repository to be governed:
+## Install inside a target repository
 
 ```sh
-npm install --save-dev "git+https://github.com/Shedu-ai/shedu-promotion-kernel.git#<FULL_40_CHARACTER_COMMIT>"
-./node_modules/.bin/shedu-promotion-kernel --subject-probe
+npm install --save-dev "git+https://github.com/Shedu-ai/shedu-promotion-kernel.git#v0.4.0-experimental.1"
+npx shedu-kernel-experimental doctor
 ```
 
-Commit both the full commit in `package.json` and the resolved integrity in the target's
-lockfile. Do not depend on `main`, a branch name, or an unverified moving tag.
+Commit the exact tag and resolved lockfile integrity. The launcher independently
+pins the certified 40-character kernel commit and tree; it never evaluates by
+following `main` or another moving branch.
 
-## Install the sample target policy
+This installation form is a development convenience. For an authoritative
+evaluation, run the launcher from the separate pinned checkout above and keep
+that checkout outside the coding agent's and target candidate's writable
+scope. A target must not be allowed to rewrite the tool that evaluates it.
+
+## Add the sample target policy
 
 From a source checkout:
 
@@ -78,62 +102,64 @@ From a source checkout:
 cp -R examples/node-source-hygiene/.shedu /absolute/path/to/target-repository/
 ```
 
-From a target repository using Option B:
+From an installed target dependency:
 
 ```sh
 cp -R node_modules/@shedu/promotion-kernel/examples/node-source-hygiene/.shedu ./
 ```
 
-Commit `.shedu/policy/` and `.shedu/validators/` to the target's trusted base revision.
-The candidate revision cannot rewrite those base-authoritative bytes for its own run.
-See the [sample policy README](../examples/node-source-hygiene/README.md) for the pack,
-profile, validator, exact digest workflow, and mechanical verification.
+Commit `.shedu/policy/` and `.shedu/validators/` before creating the candidate.
+The candidate cannot rewrite those base-authoritative bytes for its own run.
+See the [sample policy README](../examples/node-source-hygiene/README.md) for
+the exact digest workflow.
 
-## Compile a target contract
+## Compile and evaluate a target
 
-A real `work-contract@1` must contain the target's full base and candidate object IDs,
-exact path scope, exact validation-command argument arrays, and the raw-byte SHA-256
-digest of `.shedu/policy/profile.json`. It must point to policy authority already committed
-at the declared base.
+A `work-contract@1` binds the target's full base and candidate commit ids,
+authorized path scope, exact validation-command argument arrays, resource
+ceilings, and the raw-byte SHA-256 digest of its base-owned policy profile.
 
 ```sh
-node /absolute/path/to/shedu-promotion-kernel/src/cli.mjs compile \
+npx shedu-kernel-experimental compile \
   --contract /absolute/path/to/work-contract.json \
   --repo /absolute/path/to/target-repository
-```
 
-Compilation emits one canonical `compiled-policy-plan@1` document on stdout or one
-machine-readable blocking error on stderr. The sample verifier constructs a disposable
-real Git repository and exercises this exact CLI path; use it as the executable reference
-instead of copying placeholder commit IDs into production.
-
-## Admitted evaluation
-
-An external attestor must independently certify the exact installed kernel commit before
-the promotion entrypoint becomes available. Once that authority supplies all three values,
-the invocation shape is:
-
-```sh
-node src/cli.mjs evaluate \
+npx shedu-kernel-experimental evaluate \
   --contract /absolute/path/to/work-contract.json \
   --repo /absolute/path/to/target-repository \
-  --out /absolute/path/to/output-directory \
-  --attestation /absolute/path/to/detached-attestation.json \
-  --pinned-key <64_LOWERCASE_HEX_ED25519_PUBLIC_KEY> \
-  --expected-commit <ATTESTED_40_CHARACTER_KERNEL_COMMIT>
+  --out /absolute/path/to/kernel-output
 ```
 
-Do not put a private key, provider credential, bearer token, or other secret in a policy
-pack, work contract, command argument, profile, or repository file. These materials are
-recorded as public evidence. Receipt signing, when used, receives a local PEM path through
-`--sign-key`; that key file must remain outside the repository.
+Evaluation emits a canonical `promotion-receipt@1` with a disposition of
+`PROMOTABLE` or `BLOCKED` and atomically publishes the complete plan, receipt,
+and content-addressed evidence under the output directory.
+
+Never put a private key, provider credential, bearer token, or secret in a
+policy pack, work contract, command argument, profile, or repository file.
+Those inputs are recorded as public evidence. Optional receipt signing accepts
+a local PEM file through `--sign-key`; that key remains outside the repository.
+
+## Independent source verification
+
+The admitted distribution deliberately executes the certified detached commit.
+To inspect that source without admission:
+
+```sh
+git clone https://github.com/Shedu-ai/shedu-promotion-kernel.git
+cd shedu-promotion-kernel
+git checkout --detach 69253a78f095572b727c2336644b03fbff5476c8
+npm test
+npm run verify:sample-policy
+npm run subject:probe
+```
+
+The final probe reports `FOUNDATION_ONLY` because no external evidence was
+supplied to that direct invocation. This is the expected self-authorization
+boundary; `npm run experimental:doctor` is the separately admitted public path.
 
 ## Upgrade
 
-Treat an upgrade as a new authority event:
-
-1. Select and record a new full kernel commit.
-2. Run `npm test` and `npm run verify:sample-policy` at that commit.
-3. Obtain a new external attestation bound to that exact commit before evaluation.
-4. Recompute every changed raw-byte policy/profile digest.
-5. Compile a new plan; never reuse a receipt or plan from the prior kernel identity.
+An upgrade is a new authority event: select a new full kernel commit, repeat
+the independent test and conformance run, issue a new external attestation,
+and publish a new activation manifest. The launcher never reuses an old
+attestation for changed kernel source.

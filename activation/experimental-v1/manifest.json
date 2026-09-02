@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "promotion-kernel-activation-distribution@1",
+  "distributionId": "experimental-v1",
+  "releaseTag": "v0.4.0-experimental.1",
+  "kernel": {
+    "repository": "https://github.com/Shedu-ai/shedu-promotion-kernel.git",
+    "release": "@shedu/promotion-kernel@0.4.0-experimental",
+    "commit": "69253a78f095572b727c2336644b03fbff5476c8",
+    "tree": "282e60da4e98d1659767b9d4a1f89097bec275d8"
+  },
+  "authority": {
+    "authorityId": "bench-kernel-attestor-2026-08",
+    "algorithm": "ed25519",
+    "publicKey": "146566b79911ee63307b287c0df8ad726da12c94fec15ae104fd563ae0857555",
+    "path": "authority.json",
+    "digest": "sha256:d7e9ccedfbd015faabab8d4927e76ae44b0415b6092b8ea8373d509a245f8d4f"
+  },
+  "evidence": {
+    "attestation": {
+      "path": "attestation.json",
+      "digest": "sha256:eaff1671d9c37922d927b31689d0716091344b516627c65f10a773bb62dae888"
+    },
+    "certification": {
+      "path": "certification.json",
+      "digest": "sha256:b008bf1eec24dbc01e8d35261c5a1311c6eca848ce3dd460b239d73640cbd47c"
+    }
+  },
+  "commands": [
+    "compile",
+    "conformance",
+    "doctor",
+    "evaluate",
+    "inspect-evidence",
+    "probe",
+    "sandbox:linux:pull",
+    "setup",
+    "status",
+    "verify-receipt"
+  ]
+}
