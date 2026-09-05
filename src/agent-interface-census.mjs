@@ -5,7 +5,7 @@ import { validateAgentProjection } from "./agent-contracts.mjs";
 const SURFACES = Object.freeze([
   Object.freeze({
     id: "subject-status",
-    schemaKind: "kernel-agent-status@1",
+    schemaKind: "kernel-agent-status@2",
     command: "status",
     declarationArgv: "statusArgv"
   }),
@@ -36,7 +36,8 @@ export function runAgentInterfaceCensus({ observations = [] } = {}) {
   const subject = JSON.parse(source(".harness-bench/subject.json"));
   const registeredSchemas = new Set(SURFACES.map((surface) => surface.schemaKind));
   const discoveredSchemas = new Set(CONTRACT_KINDS.filter((kind) =>
-    kind.startsWith("kernel-") && kind !== "kernel-next-action@1"));
+    kind.startsWith("kernel-") && kind !== "kernel-next-action@1" && kind !== "kernel-agent-status@1" &&
+    !kind.startsWith("kernel-pilot-") && kind !== "kernel-lifecycle-attestation@1"));
   const observed = new Map();
 
   for (const observation of observations) {

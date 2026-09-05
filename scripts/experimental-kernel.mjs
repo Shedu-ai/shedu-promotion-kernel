@@ -37,7 +37,12 @@ const CLOSED_COMMANDS = Object.freeze([
   "status",
   "verify-receipt"
 ]);
-const ADMISSION_FLAGS = new Set(["--attestation", "--pinned-key", "--expected-commit"]);
+const ADMISSION_FLAGS = new Set([
+  "--attestation", "--pinned-key", "--expected-commit",
+  "--lifecycle-attestation", "--lifecycle-evidence", "--lifecycle-policy",
+  "--activation-specification", "--conformance-certification",
+  "--predecessor-lifecycle-attestation", "--lifecycle-authority-id"
+]);
 const GIT_CANDIDATES = Object.freeze([
   "/Library/Developer/CommandLineTools/usr/bin/git",
   "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
@@ -133,7 +138,41 @@ function verifySignature(document, publicKey) {
   }
 }
 
+function verifyLifecycleSignature(document, publicKey, authorityId) {
+  const authority = document?.authority;
+  if (authority?.algorithm !== "ed25519" || authority.authorityId !== authorityId ||
+      authority.publicKey !== publicKey || !/^[0-9a-f]{128}$/.test(authority.signature ?? "")) return false;
+  try {
+    const key = createPublicKey({
+      key: { kty: "OKP", crv: "Ed25519", x: Buffer.from(publicKey, "hex").toString("base64url") },
+      format: "jwk"
+    });
+    const unsigned = { ...document, authority: { ...authority, signature: null } };
+    return cryptoVerify(null, Buffer.from(canonicalize(unsigned), "utf8"), key, Buffer.from(authority.signature, "hex"));
+  } catch {
+    return false;
+  }
+}
+
 function validateManifest(manifest) {
+  if (manifest?.schemaVersion === "promotion-kernel-activation-distribution@2") {
+    exactKeys(manifest, ["schemaVersion", "distributionId", "releaseTag", "requestedStatus", "kernel", "authority", "evidence", "commands"], "manifest");
+    exactKeys(manifest.kernel, ["repository", "release", "commit", "tree"], "manifest.kernel");
+    exactKeys(manifest.authority, ["authorityId", "algorithm", "publicKey", "path", "digest"], "manifest.authority");
+    exactKeys(manifest.evidence, ["conformanceAttestation", "conformanceCertification", "lifecycleAttestation", "lifecycleEvidence", "lifecyclePolicy", "activationSpecification"], "manifest.evidence");
+    for (const [name, member] of Object.entries(manifest.evidence)) exactKeys(member, ["path", "digest"], `manifest.evidence.${name}`);
+    if (
+      !["PILOT_ELIGIBLE", "CERTIFIED"].includes(manifest.requestedStatus) ||
+      manifest.kernel.repository !== "https://github.com/Shedu-ai/shedu-promotion-kernel.git" ||
+      !SHA40.test(manifest.kernel.commit) || !SHA40.test(manifest.kernel.tree) ||
+      manifest.authority.algorithm !== "ed25519" || !HEX64.test(manifest.authority.publicKey) ||
+      !SHA256.test(manifest.authority.digest) ||
+      Object.values(manifest.evidence).some((member) => !SHA256.test(member.digest)) ||
+      !Array.isArray(manifest.commands) || manifest.commands.length !== CLOSED_COMMANDS.length ||
+      manifest.commands.some((command, index) => command !== CLOSED_COMMANDS[index])
+    ) error("ACTIVATION_EVIDENCE_INVALID", "v2 activation manifest does not match the closed distribution contract");
+    return;
+  }
   exactKeys(manifest, ["schemaVersion", "distributionId", "releaseTag", "kernel", "authority", "evidence", "commands"], "manifest");
   exactKeys(manifest.kernel, ["repository", "release", "commit", "tree"], "manifest.kernel");
   exactKeys(manifest.authority, ["authorityId", "algorithm", "publicKey", "path", "digest"], "manifest.authority");
@@ -175,8 +214,11 @@ export function verifyDistributionBundle({ activationRoot = ACTIVATION_ROOT } = 
     return { bytes, value: parseDocument(bytes, label) };
   };
   const authority = loadBound(manifest.authority, "authority");
-  const attestation = loadBound(manifest.evidence.attestation, "attestation");
-  const certification = loadBound(manifest.evidence.certification, "certification");
+  const v2 = manifest.schemaVersion === "promotion-kernel-activation-distribution@2";
+  const attestationEntry = v2 ? manifest.evidence.conformanceAttestation : manifest.evidence.attestation;
+  const certificationEntry = v2 ? manifest.evidence.conformanceCertification : manifest.evidence.certification;
+  const attestation = loadBound(attestationEntry, "attestation");
+  const certification = loadBound(certificationEntry, "certification");
 
   exactKeys(authority.value, ["schemaVersion", "authorityId", "algorithm", "publicKey", "status"], "authority");
   if (
@@ -198,7 +240,7 @@ export function verifyDistributionBundle({ activationRoot = ACTIVATION_ROOT } = 
     attestation.value.signing.publicKey !== key ||
     certification.value.allPassed !== true ||
     certification.value.authorityId !== manifest.authority.authorityId ||
-    certification.value.attestationSha256 !== manifest.evidence.attestation.digest ||
+    certification.value.attestationSha256 !== attestationEntry.digest ||
     certification.value.kernel?.repository !== kernel.repository ||
     certification.value.kernel?.release !== kernel.release ||
     certification.value.kernel?.commitSha !== kernel.commit ||
@@ -215,10 +257,38 @@ export function verifyDistributionBundle({ activationRoot = ACTIVATION_ROOT } = 
     certification.value.verification?.probe?.promotionEntrypointAvailable !== true
   ) error("ACTIVATION_EVIDENCE_INVALID", "signed certification does not admit the manifest's exact kernel identity");
 
+  let lifecyclePaths = null;
+  if (v2) {
+    const lifecycleAttestation = loadBound(manifest.evidence.lifecycleAttestation, "lifecycle attestation");
+    const lifecycleEvidence = loadBound(manifest.evidence.lifecycleEvidence, "lifecycle evidence");
+    const lifecyclePolicy = loadBound(manifest.evidence.lifecyclePolicy, "lifecycle policy");
+    const activationSpecification = loadBound(manifest.evidence.activationSpecification, "activation specification");
+    if (!verifyLifecycleSignature(lifecycleAttestation.value, key, manifest.authority.authorityId) ||
+        lifecycleAttestation.value.requestedStatus !== manifest.requestedStatus ||
+        lifecycleAttestation.value.subject?.kernelCommit !== kernel.commit ||
+        lifecycleAttestation.value.subject?.kernelTree !== kernel.tree ||
+        lifecycleAttestation.value.subject?.kernelRelease !== kernel.release ||
+        lifecycleAttestation.value.activationProfile?.configurationDigest !== manifest.evidence.activationSpecification.digest ||
+        lifecycleAttestation.value.evidence?.publicDigest !== manifest.evidence.lifecycleEvidence.digest ||
+        lifecycleAttestation.value.evidence?.policyDigest !== manifest.evidence.lifecyclePolicy.digest ||
+        lifecycleAttestation.value.conformance?.attestationDigest !== manifest.evidence.conformanceAttestation.digest ||
+        lifecycleAttestation.value.conformance?.certificationDigest !== manifest.evidence.conformanceCertification.digest) {
+      error("ACTIVATION_EVIDENCE_INVALID", "signed lifecycle evidence does not admit the v2 manifest's exact identity");
+    }
+    lifecyclePaths = Object.freeze({
+      lifecycleAttestationPath: realpathSync(join(activationRoot, manifest.evidence.lifecycleAttestation.path)),
+      lifecycleEvidencePath: realpathSync(join(activationRoot, manifest.evidence.lifecycleEvidence.path)),
+      lifecyclePolicyPath: realpathSync(join(activationRoot, manifest.evidence.lifecyclePolicy.path)),
+      activationSpecificationPath: realpathSync(join(activationRoot, manifest.evidence.activationSpecification.path)),
+      conformanceCertificationPath: realpathSync(join(activationRoot, manifest.evidence.conformanceCertification.path))
+    });
+  }
+
   return Object.freeze({
     manifest,
     manifestDigest: sha256(manifestBytes),
-    attestationPath: realpathSync(join(activationRoot, manifest.evidence.attestation.path))
+    attestationPath: realpathSync(join(activationRoot, attestationEntry.path)),
+    lifecyclePaths
   });
 }
 
@@ -345,12 +415,21 @@ export function ensureKernelInstalled({ repository = null, cacheRoot = null } = 
 }
 
 function admissionEnv(installation) {
-  return {
+  const env = {
     ...cleanRuntimeEnv(),
     SHEDU_ATTESTATION_FILE: installation.attestationPath,
     SHEDU_PINNED_KEY: installation.manifest.authority.publicKey,
     SHEDU_EXPECTED_COMMIT: installation.manifest.kernel.commit
   };
+  if (installation.lifecyclePaths !== null) {
+    env.SHEDU_LIFECYCLE_ATTESTATION_FILE = installation.lifecyclePaths.lifecycleAttestationPath;
+    env.SHEDU_LIFECYCLE_EVIDENCE_FILE = installation.lifecyclePaths.lifecycleEvidencePath;
+    env.SHEDU_LIFECYCLE_POLICY_FILE = installation.lifecyclePaths.lifecyclePolicyPath;
+    env.SHEDU_ACTIVATION_SPECIFICATION_FILE = installation.lifecyclePaths.activationSpecificationPath;
+    env.SHEDU_CONFORMANCE_CERTIFICATION_FILE = installation.lifecyclePaths.conformanceCertificationPath;
+    env.SHEDU_LIFECYCLE_AUTHORITY_ID = installation.manifest.authority.authorityId;
+  }
+  return env;
 }
 
 function childResult(installation, argv, { capture = false } = {}) {
@@ -374,8 +453,9 @@ function runDoctor(installation) {
   if (status.status !== 0 || probe.status !== 0) error("NOT_ADMITTED", "the certified kernel did not accept its activation distribution");
   const statusDocument = parseDocument(Buffer.from(status.stdout), "kernel status");
   const probeDocument = parseDocument(Buffer.from(probe.stdout), "kernel probe");
-  if (statusDocument.implementationStatus !== "EXPERIMENTAL" || probeDocument.promotionEntrypointAvailable !== true) {
-    error("NOT_ADMITTED", "the activation distribution did not produce an experimental promotion entrypoint");
+  const expectedStatus = installation.manifest.requestedStatus ?? "EXPERIMENTAL";
+  if (statusDocument.implementationStatus !== expectedStatus || probeDocument.implementationStatus !== expectedStatus || probeDocument.promotionEntrypointAvailable !== true) {
+    error("NOT_ADMITTED", `the activation distribution did not derive ${expectedStatus}`);
   }
   process.stdout.write(`${JSON.stringify({
     schemaVersion: "promotion-kernel-distribution-doctor@1",
@@ -436,6 +516,16 @@ export function runExperimental(argv = process.argv.slice(2), options = {}) {
       "--expected-commit",
       installation.manifest.kernel.commit
     ];
+    if (installation.lifecyclePaths !== null) {
+      kernelArgv.push(
+        "--lifecycle-attestation", installation.lifecyclePaths.lifecycleAttestationPath,
+        "--lifecycle-evidence", installation.lifecyclePaths.lifecycleEvidencePath,
+        "--lifecycle-policy", installation.lifecyclePaths.lifecyclePolicyPath,
+        "--activation-specification", installation.lifecyclePaths.activationSpecificationPath,
+        "--conformance-certification", installation.lifecyclePaths.conformanceCertificationPath,
+        "--lifecycle-authority-id", installation.manifest.authority.authorityId
+      );
+    }
   } else kernelArgv = [command, ...rest];
 
   const result = command === "sandbox:linux:pull"

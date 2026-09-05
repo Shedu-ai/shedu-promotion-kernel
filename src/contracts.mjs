@@ -28,9 +28,15 @@ const SCHEMA_FILES = {
   "control-surface@1": "control-surface.schema.json",
   "kernel-next-action@1": "kernel-next-action.schema.json",
   "kernel-agent-status@1": "kernel-agent-status.schema.json",
+  "kernel-agent-status@2": "kernel-agent-status-v2.schema.json",
   "kernel-evaluation-summary@1": "kernel-evaluation-summary.schema.json",
   "kernel-evidence-view@1": "kernel-evidence-view.schema.json",
-  "execution-capabilities@1": "execution-capabilities.schema.json"
+  "execution-capabilities@1": "execution-capabilities.schema.json",
+  "kernel-lifecycle-attestation@1": "kernel-lifecycle-attestation.schema.json",
+  "kernel-pilot-qualification-policy@1": "kernel-pilot-qualification-policy.schema.json",
+  "kernel-pilot-qualification-input@1": "kernel-pilot-qualification-input.schema.json",
+  "kernel-pilot-qualification-receipt@1": "kernel-pilot-qualification-receipt.schema.json",
+  "promotion-kernel-activation-distribution@2": "promotion-kernel-activation-distribution-v2.schema.json"
 };
 
 const schemas = new Map(
@@ -375,6 +381,96 @@ const SEMANTIC = {
     if (!orderedUnique(doc.capabilities)) {
       errors.push(err("SCHEMA_VIOLATION", "capabilities must be unique and sorted"));
     }
+    return errors;
+  },
+
+  "kernel-agent-status@2": (doc) => {
+    const errors = [];
+    errors.push(...reasonCodeErrors(doc.admissionReasonCodes, "admissionReasonCodes"));
+    errors.push(...reasonCodeErrors(doc.lifecycleReasonCodes, "lifecycleReasonCodes"));
+    const admitted = doc.implementationStatus !== "FOUNDATION_ONLY";
+    if (doc.promotionEntrypointAvailable !== admitted) {
+      errors.push(err("SCHEMA_VIOLATION", "implementationStatus contradicts promotionEntrypointAvailable"));
+    }
+    const expectedReasons = admitted ? [] : ["NOT_ADMITTED"];
+    if (JSON.stringify(doc.admissionReasonCodes) !== JSON.stringify(expectedReasons)) {
+      errors.push(err("SCHEMA_VIOLATION", "admissionReasonCodes contradict the projected admission state"));
+    }
+    if ((doc.implementationStatus === "FOUNDATION_ONLY" || doc.implementationStatus === "EXPERIMENTAL") && doc.lifecycleEvidence !== null) {
+      errors.push(err("SCHEMA_VIOLATION", "lower lifecycle states cannot project higher-state evidence"));
+    }
+    if ((doc.implementationStatus === "PILOT_ELIGIBLE" || doc.implementationStatus === "CERTIFIED") && doc.lifecycleEvidence === null) {
+      errors.push(err("SCHEMA_VIOLATION", "higher lifecycle states require lifecycle evidence"));
+    }
+    if (doc.implementationStatus !== "EXPERIMENTAL" && doc.lifecycleReasonCodes.length > 0) {
+      errors.push(err("SCHEMA_VIOLATION", "only a reduced EXPERIMENTAL state may project a higher-lifecycle failure"));
+    }
+    if (!orderedUnique(doc.capabilities)) {
+      errors.push(err("SCHEMA_VIOLATION", "capabilities must be unique and sorted"));
+    }
+    return errors;
+  },
+
+  "kernel-lifecycle-attestation@1": (doc) => {
+    const errors = [];
+    const issued = Date.parse(doc.validity.issuedAt);
+    const from = Date.parse(doc.validity.validFrom);
+    const expires = Date.parse(doc.validity.expiresAt);
+    if (![issued, from, expires].every(Number.isFinite) || issued > from || from >= expires) {
+      errors.push(err("SCHEMA_VIOLATION", "lifecycle validity interval is not ordered"));
+    }
+    if (!orderedUnique(doc.executionClaims.map((claim) => `${claim.platform}:${claim.profile}`))) {
+      errors.push(err("SCHEMA_VIOLATION", "executionClaims must be unique and sorted"));
+    }
+    if (doc.requestedStatus === "PILOT_ELIGIBLE") {
+      if (doc.evidence.kind !== "PILOT_QUALIFICATION_COMPLETE") {
+        errors.push(err("SCHEMA_VIOLATION", "PILOT_ELIGIBLE requires pilot qualification evidence"));
+      }
+      if (doc.predecessor.status !== "EXPERIMENTAL" && doc.predecessor.status !== "PILOT_ELIGIBLE") {
+        errors.push(err("SCHEMA_VIOLATION", "PILOT_ELIGIBLE has an illegal predecessor"));
+      }
+    }
+    if (doc.requestedStatus === "CERTIFIED") {
+      if (doc.evidence.kind !== "OPERATIONAL_CERTIFICATION_COMPLETE" || doc.predecessor.status !== "PILOT_ELIGIBLE") {
+        errors.push(err("SCHEMA_VIOLATION", "CERTIFIED requires operational evidence and a PILOT_ELIGIBLE predecessor"));
+      }
+    }
+    if (doc.predecessor.status === "EXPERIMENTAL" && (doc.sequence !== 1 || doc.supersedes !== null)) {
+      errors.push(err("SCHEMA_VIOLATION", "the first lifecycle advancement must use sequence 1 with no superseded lifecycle attestation"));
+    }
+    if (doc.predecessor.status !== "EXPERIMENTAL" && doc.supersedes !== doc.predecessor.attestationDigest) {
+      errors.push(err("SCHEMA_VIOLATION", "renewal or advancement must supersede its exact lifecycle predecessor"));
+    }
+    return errors;
+  },
+
+  "kernel-pilot-qualification-policy@1": (doc) => {
+    const errors = [];
+    const ids = doc.requiredChecks.map((check) => check.checkId);
+    for (const id of duplicateIds(ids)) errors.push(err("DUPLICATE_CHECK_ID", `qualification check ${id} is declared more than once`));
+    if (!orderedUnique(ids)) errors.push(err("SCHEMA_VIOLATION", "qualification requiredChecks must be sorted by checkId"));
+    for (const check of doc.requiredChecks) errors.push(...argvSecretErrors(check.argv, `requiredChecks[${check.checkId}].argv`));
+    return errors;
+  },
+
+  "kernel-pilot-qualification-input@1": (doc) => {
+    const errors = [];
+    const ids = doc.results.map((result) => result.checkId);
+    for (const id of duplicateIds(ids)) errors.push(err("DUPLICATE_RESULT", `qualification result ${id} appears more than once`));
+    if (!orderedUnique(ids)) errors.push(err("SCHEMA_VIOLATION", "qualification results must be sorted by checkId"));
+    for (const result of doc.results) errors.push(...argvSecretErrors(result.argv, `results[${result.checkId}].argv`));
+    const artifactIds = doc.privateEvidenceManifest.map((artifact) => artifact.artifactId);
+    for (const id of duplicateIds(artifactIds)) errors.push(err("DUPLICATE_ENTRY_ID", `qualification artifact ${id} appears more than once`));
+    if (!orderedUnique(artifactIds)) errors.push(err("SCHEMA_VIOLATION", "privateEvidenceManifest must be sorted by artifactId"));
+    return errors;
+  },
+
+  "promotion-kernel-activation-distribution@2": (doc) => {
+    const errors = [];
+    for (const [label, member] of [["authority", doc.authority], ...Object.entries(doc.evidence)]) {
+      errors.push(...pathErrors([member.path], `${label}.path`));
+    }
+    if (!orderedUnique(doc.commands)) errors.push(err("SCHEMA_VIOLATION", "activation commands must be unique and sorted"));
     return errors;
   },
 

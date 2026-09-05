@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-agent-status-v2.schema.json",
+  "title": "kernel-agent-status@2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "subject", "kernelRelease", "kernelCommit", "kernelTree", "implementationStatus", "promotionEntrypointAvailable", "capabilities", "admissionReasonCodes", "lifecycleReasonCodes", "lifecycleEvidence", "nextActions"],
+  "properties": {
+    "schemaVersion": {"const": "kernel-agent-status@2"},
+    "subject": {"const": "shedu-promotion-kernel"},
+    "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+    "kernelCommit": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{40}$"}]},
+    "kernelTree": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{40}$"}]},
+    "implementationStatus": {"enum": ["FOUNDATION_ONLY", "EXPERIMENTAL", "PILOT_ELIGIBLE", "CERTIFIED"]},
+    "promotionEntrypointAvailable": {"type": "boolean"},
+    "capabilities": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@[1-9][0-9]*$", "maxLength": 128}},
+    "admissionReasonCodes": {"type": "array", "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64}},
+    "lifecycleReasonCodes": {"type": "array", "maxItems": 1, "uniqueItems": true, "items": {"enum": ["LIFECYCLE_EVIDENCE_INVALID", "LIFECYCLE_ATTESTATION_INVALID", "LIFECYCLE_EXPIRED", "LIFECYCLE_PREDECESSOR_MISMATCH", "LIFECYCLE_SEQUENCE_INVALID"]}},
+    "lifecycleEvidence": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["attestationDigest", "evidenceDigest", "policyDigest", "validFrom", "expiresAt", "sequence"], "properties": {
+      "attestationDigest": {"$ref": "#/$defs/digest"}, "evidenceDigest": {"$ref": "#/$defs/digest"}, "policyDigest": {"$ref": "#/$defs/digest"}, "validFrom": {"$ref": "#/$defs/time"}, "expiresAt": {"$ref": "#/$defs/time"}, "sequence": {"type": "integer", "minimum": 1}
+    }}]},
+    "nextActions": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"enum": ["OBTAIN_EXTERNAL_ADMISSION", "COMPLETE_PILOT_QUALIFICATION", "OBTAIN_PILOT_ATTESTATION", "RUN_BOUNDED_OPERATIONAL_PILOT", "COMPLETE_OPERATIONAL_CERTIFICATION", "RENEW_LIFECYCLE_EVIDENCE", "PROCESS_LIFECYCLE_DOWNGRADE", "SUBMIT_EVALUATION", "RETURN_TO_AUTHORIZER", "REPAIR_CANDIDATE", "REPAIR_EVALUATION_ENVIRONMENT", "VERIFY_PROMOTABLE_RECEIPT", "EXTERNAL_PROMOTION_DECISION_AVAILABLE", "NONE"]}}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}}
+}

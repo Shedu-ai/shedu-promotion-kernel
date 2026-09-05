@@ -115,6 +115,13 @@
         "attestation": {"$ref": "#/$defs/parameter"},
         "pinnedKey": {"$ref": "#/$defs/parameter"},
         "expectedCommit": {"$ref": "#/$defs/parameter"},
+        "lifecycleAttestation": {"$ref": "#/$defs/parameter"},
+        "lifecycleEvidence": {"$ref": "#/$defs/parameter"},
+        "lifecyclePolicy": {"$ref": "#/$defs/parameter"},
+        "activationSpecification": {"$ref": "#/$defs/parameter"},
+        "conformanceCertification": {"$ref": "#/$defs/parameter"},
+        "predecessorLifecycleAttestation": {"$ref": "#/$defs/parameter"},
+        "lifecycleAuthorityId": {"$ref": "#/$defs/parameter"},
         "signKey": {"$ref": "#/$defs/parameter"},
         "projection": {"$ref": "#/$defs/parameter"}
       }

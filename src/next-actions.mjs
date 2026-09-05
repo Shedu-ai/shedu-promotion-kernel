@@ -10,6 +10,9 @@ const actionSchema = JSON.parse(
 const agentStatusSchema = JSON.parse(
   readFileSync(new URL("../schemas/kernel-agent-status.schema.json", import.meta.url), "utf8")
 );
+const agentStatusV2Schema = JSON.parse(
+  readFileSync(new URL("../schemas/kernel-agent-status-v2.schema.json", import.meta.url), "utf8")
+);
 const evaluationSummarySchema = JSON.parse(
   readFileSync(new URL("../schemas/kernel-evaluation-summary.schema.json", import.meta.url), "utf8")
 );
@@ -89,6 +92,11 @@ export const REASON_ACTIONS = freezeMap([
   ["SANDBOX_UNAVAILABLE", ["REPAIR_EVALUATION_ENVIRONMENT"]],
   ["TOOLCHAIN_UNRESOLVED", ["REPAIR_EVALUATION_ENVIRONMENT"]],
   ["ACTIVATION_EVIDENCE_INVALID", ["REPAIR_EVALUATION_ENVIRONMENT"]],
+  ["LIFECYCLE_EVIDENCE_INVALID", ["COMPLETE_PILOT_QUALIFICATION"]],
+  ["LIFECYCLE_ATTESTATION_INVALID", ["OBTAIN_PILOT_ATTESTATION"]],
+  ["LIFECYCLE_EXPIRED", ["RENEW_LIFECYCLE_EVIDENCE", "PROCESS_LIFECYCLE_DOWNGRADE"]],
+  ["LIFECYCLE_PREDECESSOR_MISMATCH", ["OBTAIN_PILOT_ATTESTATION"]],
+  ["LIFECYCLE_SEQUENCE_INVALID", ["OBTAIN_PILOT_ATTESTATION"]],
   ["PRIOR_ART_COLLISION", ["RETURN_TO_AUTHORIZER", "REPAIR_CANDIDATE"]],
   ["REVIEW_REQUIRED", ["RETURN_TO_AUTHORIZER"]],
   ["LIVENESS_BELOW_THRESHOLD", ["REPAIR_EVALUATION_ENVIRONMENT"]],
@@ -126,13 +134,16 @@ export function auditNextActionRegistry() {
     "OBTAIN_EXTERNAL_ADMISSION",
     "SUBMIT_EVALUATION",
     "VERIFY_PROMOTABLE_RECEIPT",
-    "EXTERNAL_PROMOTION_DECISION_AVAILABLE"
+    "EXTERNAL_PROMOTION_DECISION_AVAILABLE",
+    "RUN_BOUNDED_OPERATIONAL_PILOT",
+    "COMPLETE_OPERATIONAL_CERTIFICATION"
   ]);
   for (const actions of Object.values(REASON_ACTIONS)) for (const action of actions) reachable.add(action);
   const unreachableActions = NEXT_ACTIONS.filter((action) => !reachable.has(action));
   const schemaActionDrift = [];
   for (const [schemaId, values] of [
     ["kernel-agent-status@1", agentStatusSchema.$defs?.nextActions?.items?.enum],
+    ["kernel-agent-status@2", agentStatusV2Schema.properties?.nextActions?.items?.enum],
     ["kernel-evaluation-summary@1", evaluationSummarySchema.$defs?.nextActions?.items?.enum]
   ]) {
     if (JSON.stringify(values) !== JSON.stringify(NEXT_ACTIONS)) schemaActionDrift.push(schemaId);
@@ -159,6 +170,28 @@ const orderActions = (actions) => {
 
 export function actionsForAdmission(admitted) {
   return admitted === true ? ["SUBMIT_EVALUATION"] : ["OBTAIN_EXTERNAL_ADMISSION"];
+}
+
+export function actionsForLifecycle(status, { lifecycleEvidencePresent = false, failureCode = null } = {}) {
+  if (status === "FOUNDATION_ONLY") return ["OBTAIN_EXTERNAL_ADMISSION"];
+  if (status === "EXPERIMENTAL") {
+    if (failureCode === "LIFECYCLE_EXPIRED") return ["RENEW_LIFECYCLE_EVIDENCE", "PROCESS_LIFECYCLE_DOWNGRADE"];
+    if (["LIFECYCLE_ATTESTATION_INVALID", "LIFECYCLE_PREDECESSOR_MISMATCH", "LIFECYCLE_SEQUENCE_INVALID"].includes(failureCode)) {
+      return ["OBTAIN_PILOT_ATTESTATION"];
+    }
+    return ["COMPLETE_PILOT_QUALIFICATION"];
+  }
+  if (status === "PILOT_ELIGIBLE") {
+    return failureCode === "LIFECYCLE_EXPIRED"
+      ? ["RENEW_LIFECYCLE_EVIDENCE", "PROCESS_LIFECYCLE_DOWNGRADE"]
+      : ["SUBMIT_EVALUATION", "RUN_BOUNDED_OPERATIONAL_PILOT", "COMPLETE_OPERATIONAL_CERTIFICATION"];
+  }
+  if (status === "CERTIFIED") {
+    return failureCode === "LIFECYCLE_EXPIRED"
+      ? ["RENEW_LIFECYCLE_EVIDENCE", "PROCESS_LIFECYCLE_DOWNGRADE"]
+      : ["SUBMIT_EVALUATION", "RENEW_LIFECYCLE_EVIDENCE"];
+  }
+  throw new TypeError(`unknown lifecycle status ${String(status)}`);
 }
 
 export function actionsForEvaluation({ evaluationState, disposition = null, reasonCodes = [], checkResults = [] }) {

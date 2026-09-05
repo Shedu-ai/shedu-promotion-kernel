@@ -72,7 +72,7 @@ The agent cannot:
 
 This separation allows Codex, Claude Code, local models, or future coding agents to be exchanged without making any one controller the authority over its own work.
 
-## Status: public experimental activation available
+## Status: public experimental activation available; pilot lifecycle implemented
 
 The kernel can now evaluate real candidates and issue `PROMOTABLE` or `BLOCKED`
 receipts through the public experimental launcher. Harness Bench independently
@@ -98,6 +98,15 @@ without the launcher. That is intentional: mutable source cannot certify
 itself. `FOUNDATION_ONLY` now describes an unauthenticated checkout, not the
 availability of the public experimental product. The signing key remains
 external and private; only its public key and signed evidence are published.
+
+The source now recognizes an ordered, externally attested lifecycle:
+`FOUNDATION_ONLY → EXPERIMENTAL → PILOT_ELIGIBLE → CERTIFIED`. Higher states
+are derived from versioned, expiring evidence and cannot be selected by the
+kernel, a coding agent, or a target repository. The currently published
+launcher remains `EXPERIMENTAL` until the exact new kernel identity is
+independently recertified, deterministically qualified, and published in a v2
+activation bundle. `CERTIFIED` additionally requires completed real-pilot
+operational evidence; pilot qualification alone can never produce it.
 
 ## Promotion path
 

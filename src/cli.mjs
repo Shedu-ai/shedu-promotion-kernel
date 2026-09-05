@@ -16,7 +16,7 @@ import {
 } from "./supervisor.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
-import { isAdmitted, committedAdmission } from "./admission.mjs";
+import { admittedLifecycleStatus, isAdmitted, committedAdmission } from "./admission.mjs";
 import { readBoundedRegularFile } from "./bounded-file.mjs";
 import {
   AgentProjectionError,
@@ -73,7 +73,7 @@ export function subjectProbe(admission) {
     return {
       schemaVersion: "harness-bench-subject-probe@1",
       subject: "shedu-promotion-kernel",
-      implementationStatus: "EXPERIMENTAL",
+      implementationStatus: admittedLifecycleStatus(admission),
       capabilities: [...EXPERIMENTAL_CAPABILITIES],
       promotionEntrypointAvailable: true
     };
@@ -189,6 +189,22 @@ function admissionOverridesFromFlags(flags) {
     if (!/^[0-9a-f]{40}$/.test(commit)) return { error: "--expected-commit must be a 40-character commit id" };
     overrides.expectedCommit = commit;
   }
+  const lifecyclePaths = [
+    ["--lifecycle-attestation", "lifecycleAttestationPath"],
+    ["--lifecycle-evidence", "lifecycleEvidencePath"],
+    ["--lifecycle-policy", "lifecyclePolicyPath"],
+    ["--activation-specification", "activationSpecificationPath"],
+    ["--conformance-certification", "conformanceCertificationPath"],
+    ["--predecessor-lifecycle-attestation", "predecessorLifecycleAttestationPath"]
+  ];
+  for (const [flag, key] of lifecyclePaths) if (flags.has(flag)) overrides[key] = flags.get(flag);
+  if (flags.has("--lifecycle-authority-id")) {
+    const authorityId = flags.get("--lifecycle-authority-id");
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(authorityId) || authorityId.length > 128) {
+      return { error: "--lifecycle-authority-id must be a bounded kebab identifier" };
+    }
+    overrides.lifecycleAuthorityId = authorityId;
+  }
   return { overrides };
 }
 
@@ -196,9 +212,9 @@ function runEvaluate(argv) {
   const operationClock = beginSupervisedOperation();
   const usage = () =>
     emitError("CLI_USAGE", [
-      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>] [--projection <full|agent>]" }
+      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>] [--lifecycle-attestation <file> --lifecycle-evidence <file> --lifecycle-policy <file> --activation-specification <file> --conformance-certification <file> --lifecycle-authority-id <id>] [--projection <full|agent>]" }
     ]);
-  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit", "--projection"]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit", "--lifecycle-attestation", "--lifecycle-evidence", "--lifecycle-policy", "--activation-specification", "--conformance-certification", "--predecessor-lifecycle-attestation", "--lifecycle-authority-id", "--projection"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
   const projection = flags.get("--projection") ?? "full";
   if (projection !== "full" && projection !== "agent") return usage();
@@ -235,6 +251,19 @@ function runEvaluate(argv) {
   if (att) workerEnv.SHEDU_ATTESTATION_FILE = att;
   if (key) workerEnv.SHEDU_PINNED_KEY = key;
   if (exp) workerEnv.SHEDU_EXPECTED_COMMIT = exp;
+  const lifecycleEnv = [
+    ["lifecycleAttestationPath", "SHEDU_LIFECYCLE_ATTESTATION_FILE"],
+    ["lifecycleEvidencePath", "SHEDU_LIFECYCLE_EVIDENCE_FILE"],
+    ["lifecyclePolicyPath", "SHEDU_LIFECYCLE_POLICY_FILE"],
+    ["activationSpecificationPath", "SHEDU_ACTIVATION_SPECIFICATION_FILE"],
+    ["conformanceCertificationPath", "SHEDU_CONFORMANCE_CERTIFICATION_FILE"],
+    ["predecessorLifecycleAttestationPath", "SHEDU_PREDECESSOR_LIFECYCLE_ATTESTATION_FILE"],
+    ["lifecycleAuthorityId", "SHEDU_LIFECYCLE_AUTHORITY_ID"]
+  ];
+  for (const [keyName, envName] of lifecycleEnv) {
+    const value = parsedOverrides.overrides[keyName] ?? process.env[envName];
+    if (value) workerEnv[envName] = value;
+  }
 
   const supervised = evaluateSupervised({
     repoDir: flags.get("--repo"),

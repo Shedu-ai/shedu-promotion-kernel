@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-pilot-qualification-receipt.schema.json",
+  "title": "kernel-pilot-qualification-receipt@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "subject", "policyId", "policyVersion", "policyDigest", "activationSpecificationDigest", "conformance", "status", "reasonCodes", "resultCount", "resultsDigest", "privateEvidenceManifestRootDigest", "publicEvidenceDigest"],
+  "properties": {
+    "schemaVersion": {"const": "kernel-pilot-qualification-receipt@1"},
+    "subject": {"$ref": "#/$defs/subject"},
+    "policyId": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128},
+    "policyVersion": {"type": "integer", "minimum": 1},
+    "policyDigest": {"$ref": "#/$defs/digest"},
+    "activationSpecificationDigest": {"$ref": "#/$defs/digest"},
+    "conformance": {"type": "object", "additionalProperties": false, "required": ["attestationDigest", "certificationDigest", "mechanismInventoryDigest", "controlSurfaceDigest", "statusDigest"], "properties": {
+      "attestationDigest": {"$ref": "#/$defs/digest"}, "certificationDigest": {"$ref": "#/$defs/digest"}, "mechanismInventoryDigest": {"$ref": "#/$defs/digest"}, "controlSurfaceDigest": {"$ref": "#/$defs/digest"}, "statusDigest": {"$ref": "#/$defs/digest"}
+    }},
+    "status": {"enum": ["PILOT_QUALIFICATION_COMPLETE", "PILOT_QUALIFICATION_INCOMPLETE"]},
+    "reasonCodes": {"type": "array", "maxItems": 16, "uniqueItems": true, "items": {"enum": ["QUALIFICATION_INPUT_INVALID", "QUALIFICATION_IDENTITY_MISMATCH", "QUALIFICATION_RESULT_MISSING", "QUALIFICATION_RESULT_DUPLICATE", "QUALIFICATION_RESULT_UNEXPECTED", "QUALIFICATION_RESULT_FAILED", "QUALIFICATION_EVIDENCE_INVALID", "QUALIFICATION_POLICY_INVALID"]}},
+    "resultCount": {"type": "integer", "minimum": 0, "maximum": 128},
+    "resultsDigest": {"$ref": "#/$defs/digest"},
+    "privateEvidenceManifestRootDigest": {"$ref": "#/$defs/digest"},
+    "publicEvidenceDigest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "subject": {"type": "object", "additionalProperties": false, "required": ["subjectId", "repository", "kernelRelease", "kernelCommit", "kernelTree"], "properties": {
+      "subjectId": {"const": "shedu-promotion-kernel"}, "repository": {"const": "https://github.com/Shedu-ai/shedu-promotion-kernel.git"}, "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128}, "kernelCommit": {"$ref": "#/$defs/sha40"}, "kernelTree": {"$ref": "#/$defs/sha40"}
+    }}
+  }
+}

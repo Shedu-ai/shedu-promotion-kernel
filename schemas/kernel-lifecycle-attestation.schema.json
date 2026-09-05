@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/kernel-lifecycle-attestation.schema.json",
+  "title": "kernel-lifecycle-attestation@1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "subject", "activationProfile", "requestedStatus", "predecessor", "evidence", "conformance", "executionClaims", "validity", "sequence", "supersedes", "authority"],
+  "properties": {
+    "schemaVersion": {"const": "kernel-lifecycle-attestation@1"},
+    "subject": {
+      "type": "object", "additionalProperties": false,
+      "required": ["subjectId", "repository", "kernelRelease", "kernelCommit", "kernelTree"],
+      "properties": {
+        "subjectId": {"const": "shedu-promotion-kernel"},
+        "repository": {"const": "https://github.com/Shedu-ai/shedu-promotion-kernel.git"},
+        "kernelRelease": {"type": "string", "minLength": 1, "maxLength": 128},
+        "kernelCommit": {"$ref": "#/$defs/sha40"},
+        "kernelTree": {"$ref": "#/$defs/sha40"}
+      }
+    },
+    "activationProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "configurationDigest"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128},
+        "version": {"type": "integer", "minimum": 1},
+        "configurationDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "requestedStatus": {"enum": ["PILOT_ELIGIBLE", "CERTIFIED"]},
+    "predecessor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "attestationDigest"],
+      "properties": {
+        "status": {"enum": ["EXPERIMENTAL", "PILOT_ELIGIBLE", "CERTIFIED"]},
+        "attestationDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "publicDigest", "policyId", "policyVersion", "policyDigest", "privateManifestRootDigest"],
+      "properties": {
+        "kind": {"enum": ["PILOT_QUALIFICATION_COMPLETE", "OPERATIONAL_CERTIFICATION_COMPLETE"]},
+        "publicDigest": {"$ref": "#/$defs/digest"},
+        "policyId": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128},
+        "policyVersion": {"type": "integer", "minimum": 1},
+        "policyDigest": {"$ref": "#/$defs/digest"},
+        "privateManifestRootDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "conformance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attestationDigest", "certificationDigest", "mechanismInventoryDigest", "controlSurfaceDigest"],
+      "properties": {
+        "attestationDigest": {"$ref": "#/$defs/digest"},
+        "certificationDigest": {"$ref": "#/$defs/digest"},
+        "mechanismInventoryDigest": {"$ref": "#/$defs/digest"},
+        "controlSurfaceDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "executionClaims": {
+      "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["platform", "profile"],
+        "properties": {
+          "platform": {"enum": ["darwin", "linux-oci"]},
+          "profile": {"enum": ["STRICT", "STANDARD_TEST"]}
+        }
+      }
+    },
+    "validity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issuedAt", "validFrom", "expiresAt", "maxClockSkewSeconds"],
+      "properties": {
+        "issuedAt": {"$ref": "#/$defs/time"},
+        "validFrom": {"$ref": "#/$defs/time"},
+        "expiresAt": {"$ref": "#/$defs/time"},
+        "maxClockSkewSeconds": {"type": "integer", "minimum": 0, "maximum": 300}
+      }
+    },
+    "sequence": {"type": "integer", "minimum": 1},
+    "supersedes": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/digest"}]},
+    "authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorityId", "algorithm", "publicKey", "signature"],
+      "properties": {
+        "authorityId": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "maxLength": 128},
+        "algorithm": {"const": "ed25519"},
+        "publicKey": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "signature": {"oneOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9a-f]{128}$"}]}
+      }
+    }
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sha40": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "time": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}

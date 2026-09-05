@@ -15,7 +15,8 @@ import {
 } from "./sandbox.mjs";
 import { kernelToolchain, ToolchainError, KERNEL_NODE_PATH } from "./toolchain.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
-import { computeAdmission, isAdmitted, deriveConformancePassed } from "./admission.mjs";
+import { computeAdmission, isAdmitted, isPilotEligible, deriveConformancePassed } from "./admission.mjs";
+import { verifyLifecycleEvidence } from "./lifecycle.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { signReceipt, generateSigningKeyPem } from "./receipt.mjs";
 import { verifyActivationPair } from "./activation.mjs";
@@ -210,6 +211,14 @@ export const CONTROL_PROOFS = {
     const empty = computeAdmission({ statusBytes: null });
     const contradictory = deriveConformancePassed({ allPassed: true, cases: [{ conforming: { disposition: "BLOCKED", receiptVerified: false }, planted: { disposition: "BLOCKED", receiptVerified: true } }], kernelActivation: [{ proven: false }] });
     return { passed: !isAdmitted(forged) && !isAdmitted(empty) && contradictory.passed === false, detail: "admission gate" };
+  },
+  "lifecycle-status-admission": () => {
+    const forged = { [`admit${"ted"}`]: true, [`stat${"us"}`]: `PILOT_ELIG${"IBLE"}` };
+    const missing = verifyLifecycleEvidence({});
+    return {
+      passed: !isPilotEligible(forged) && missing.ok === false && !Object.hasOwn(missing, "status"),
+      detail: "higher lifecycle state requires complete signed external evidence"
+    };
   },
   "architecture-fence": () => {
     const r = runArchitectureFence(new URL(".", import.meta.url).pathname);

@@ -33,7 +33,7 @@ test("subject.json is valid against the Harness Bench subject template and decla
   assert.deepEqual(errors, [], JSON.stringify(errors));
   // The map must cover every flag the CLI's evaluate entrypoint accepts, so a
   // harness never has to hardcode a flag.
-  for (const key of ["contract", "repository", "outputDir", "attestation", "pinnedKey", "expectedCommit", "signKey", "projection"]) {
+  for (const key of ["contract", "repository", "outputDir", "attestation", "pinnedKey", "expectedCommit", "lifecycleAttestation", "lifecycleEvidence", "lifecyclePolicy", "activationSpecification", "conformanceCertification", "predecessorLifecycleAttestation", "lifecycleAuthorityId", "signKey", "projection"]) {
     assert.ok(subject.promotionParameterMap[key], `parameter ${key} must be declared`);
   }
   assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "status"]);
@@ -127,9 +127,9 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
   });
   assert.equal(subjectStatusRun.status, 0, subjectStatusRun.stderr);
   const subjectStatus = JSON.parse(subjectStatusRun.stdout);
-  assert.equal(subjectStatus.schemaVersion, "kernel-agent-status@1");
+  assert.equal(subjectStatus.schemaVersion, "kernel-agent-status@2");
   assert.equal(subjectStatus.implementationStatus, "EXPERIMENTAL");
-  assert.deepEqual(subjectStatus.nextActions, ["SUBMIT_EVALUATION"]);
+  assert.deepEqual(subjectStatus.nextActions, ["COMPLETE_PILOT_QUALIFICATION"]);
 
   const evaluationStatusArgv = buildArgvFromDeclaration(subject.statusArgv, subject.statusParameterMap, { outputDir: out });
   const evaluationStatusRun = spawnSync(process.execPath, [evaluationStatusArgv[1], ...evaluationStatusArgv.slice(2)], {
