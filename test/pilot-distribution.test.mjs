@@ -52,7 +52,7 @@ function buildBundle() {
   const inputValue = {
     schemaVersion: "kernel-pilot-qualification-input@1", subject, policyDigest: digestOfCanonical(policyValue), activationSpecificationDigest: activationSpecification.digest,
     conformance: { attestationDigest: conformance.digest, certificationDigest: certification.digest, mechanismInventoryDigest: conformanceUnsigned.mechanismInventoryDigest, controlSurfaceDigest: conformanceUnsigned.controlSurfaceDigest, statusDigest: conformanceUnsigned.conformanceStatusDigest },
-    results: [{ checkId: "qualification", platform: "darwin", profile: "STRICT", argv: ["node", "--test"], outcome: "PASS", exitCode: 0, evidenceDigest: `sha256:${"4".repeat(64)}` }],
+    results: [{ checkId: "qualification", platform: "darwin", profile: "STRICT", argv: ["node", "--test"], outcome: "PASS", exitCode: 0, durationMilliseconds: 1, outputBytes: 1, evidenceDigest: `sha256:${"4".repeat(64)}` }],
     privateEvidenceManifest: [{ artifactId: "qualification", digest: `sha256:${"4".repeat(64)}`, byteLength: 1 }], providerCalls: 0
   };
   const compiled = compilePilotQualification({ policyBytes: Buffer.from(canonicalize(policyValue)), inputBytes: Buffer.from(canonicalize(inputValue)) });
