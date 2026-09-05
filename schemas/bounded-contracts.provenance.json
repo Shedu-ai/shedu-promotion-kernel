@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "generated-contract-provenance@1",
+  "generator": "../scripts/generate-bounded-contract-schemas.mjs",
+  "generatorDigest": "sha256:ec153db8681cccffb93f6402a4c9ae29c5fd51e137b63437c9520c0e26b9e7c5",
+  "generated": [
+    {
+      "path": "work-contract-v2.schema.json",
+      "digest": "sha256:8485bf3790e25c76674735576854bb681baf14cec13cf59fa2ba4cbf13fb692f"
+    },
+    {
+      "path": "policy-pack-v2.schema.json",
+      "digest": "sha256:d8d3300d0eef4ebcf8ed47688dfd9f37d9a8b4e35ce372c560eaa021dc383e4a"
+    },
+    {
+      "path": "policy-profile-v2.schema.json",
+      "digest": "sha256:20ff414fb29f4cf7bd34de254c843148373132f41687c134a904c8201e01b4e4"
+    },
+    {
+      "path": "compiled-policy-plan-v2.schema.json",
+      "digest": "sha256:6204fdd03fc790dce016dd938e5736e3c91aa1f7883573d75ebe7e7f982761fa"
+    },
+    {
+      "path": "command-report-v2.schema.json",
+      "digest": "sha256:9d1a697e44806bcc9061aadae8f19bfbbaea6f7c6bc7546f01d62705b47c0a58"
+    },
+    {
+      "path": "promotion-receipt-v2.schema.json",
+      "digest": "sha256:2718564d979bfcd54e7b969dac573bd431af57ce39a3f8c92d9d33045d8db466"
+    }
+  ]
+}

@@ -16,6 +16,7 @@
     "statusParameterMap",
     "evidenceInspectionArgv",
     "evidenceInspectionParameterMap",
+    "executionPreflightArgv",
     "capabilities",
     "implementationStatus",
     "commitShaSource"
@@ -83,6 +84,13 @@
       }
     },
     "conformanceArgv": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/argv"}
+      ]
+    },
+    "executionPreflightArgv": {
+      "description": "Provider-free command that reports live execution presets and backend availability. It is routing evidence, never authority to widen a compiled plan.",
       "oneOf": [
         {"type": "null"},
         {"$ref": "#/$defs/argv"}

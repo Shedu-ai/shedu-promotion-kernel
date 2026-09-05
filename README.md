@@ -136,6 +136,7 @@ node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key
 node src/cli.mjs inspect-evidence --out <evaluation-output-dir> --artifact <artifact-id> [--max-bytes <1-65536>]
 node src/cli.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
 node src/cli.mjs conformance --out <dir>
+node src/cli.mjs execution-preflight
 node src/cli.mjs --subject-probe
 ```
 
@@ -148,6 +149,11 @@ they cannot admit the kernel, change scope, alter a disposition, replace a
 receipt, or authorize promotion. `evaluate` continues to emit the complete
 receipt by default; `--projection agent` changes stdout presentation only and
 leaves the same authoritative bundle on disk.
+
+`execution-preflight` is provider-free routing evidence: it reports whether
+`STRICT` and `STANDARD_TEST` are enforceable on the current worker. It cannot
+grant or enlarge the authority compiled from a policy pack, work contract,
+and policy profile.
 
 ## Install and try a policy pack
 

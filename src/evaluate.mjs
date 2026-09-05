@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument, validateValue } from "./contracts.mjs";
+import { validateDocument, validateValue, validateVersionedDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { resolveBuiltinValidator } from "./builtin-validators.mjs";
@@ -11,9 +11,11 @@ import { createEvidenceIndex } from "./evidence.mjs";
 import { reduceDisposition, isReducerDisposition } from "./reducer.mjs";
 import { createControlLedger } from "./control-runtime.mjs";
 import { runTargetCommand } from "./runner.mjs";
+import { runtimeExecutionRequirement } from "./execution-policy.mjs";
 import { createDeadline } from "./deadline.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
 import { committishForCandidate, materializeWorktree } from "./workspace.mjs";
+import { verifyReceipt } from "./receipt.mjs";
 
 // Control points implemented in the evaluation orchestrator.
 export const CONTROL_POINTS = Object.freeze(["containment-halt-routing", "artifact-root-enforcement"]);
@@ -77,9 +79,12 @@ export function resolveEvidenceDir(outDir, artifactRoot) {
 export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks = null }) {
   const failure = (reasonCode, errors) => ({ ok: false, reasonCode, errors });
 
-  const contract = validateDocument("work-contract@1", contractBytes);
+  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
   if (!contract.ok) return failure(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
+  const boundedContracts = workContract.schemaVersion === "work-contract@2";
+  const profileKind = boundedContracts ? "policy-profile@2" : "policy-profile@1";
+  const packKind = boundedContracts ? "policy-pack@2" : "policy-pack@1";
   const { baseCommit } = workContract.target;
 
   const commit = verifyImmutableCommit(repoDir, baseCommit);
@@ -90,7 +95,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     baseCommit,
     path: workContract.policyProfile.path,
     expectedDigest: workContract.policyProfile.digest,
-    kind: "policy-profile@1"
+    kind: profileKind
   });
   if (!profile.ok) return failure(profile.reasonCode, profile.errors ?? [profile]);
 
@@ -159,7 +164,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
       baseCommit,
       path: selection.path,
       expectedDigest: selection.digest,
-      kind: "policy-pack@1"
+      kind: packKind
     });
     if (!pack.ok) return failure(pack.reasonCode, pack.errors ?? [pack]);
     packs.push({ value: pack.value, digest: pack.digest });
@@ -203,6 +208,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   const deadline = createDeadline(workContract.maxRuntimeSeconds * 1000);
   engage("evaluation-deadline", "PASS");
   const results = [];
+  const executionReports = [];
   let changedFiles = [];
   let haltCode = null;
   let lastPhase = null;
@@ -275,6 +281,11 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
             mechanismRegistry,
             deadline
           });
+          for (const entry of partial.details?.reports ?? []) {
+            if (entry.executed === true && entry.report?.execution) {
+              executionReports.push({ commandId: entry.commandId, report: entry.report.execution });
+            }
+          }
         } else {
           const remainingMs = deadline.remainingMs();
           if (remainingMs <= 0) {
@@ -292,7 +303,8 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
               },
               timeoutMs: Math.min(check.timeoutSeconds * 1000, remainingMs),
               maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
-              maxProcesses: workContract.resourceCeilings.maxProcesses,
+              maxProcesses: boundedContracts ? undefined : workContract.resourceCeilings.maxProcesses,
+              executionRequirement: boundedContracts ? runtimeExecutionRequirement(check.execution) : null,
               // The candidate (the inspection target) is granted wholesale;
               // the validator's OWN base code is restricted to exactly its
               // declared input manifest — an undeclared base read is denied.
@@ -334,6 +346,8 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
               partial = { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], evidence: refs };
             } else if (execution.report.timedOut) {
               partial = { outcome: "FIRED", reasonCodes: ["COMMAND_TIMEOUT"], evidence: refs };
+            } else if (execution.taskBudgetExceeded) {
+              partial = { outcome: "FIRED", reasonCodes: ["TASK_BUDGET_EXCEEDED"], evidence: refs };
             } else if (!execution.succeeded) {
               partial = { outcome: "FIRED", reasonCodes: ["COMMAND_FAILED"], evidence: refs };
             } else if (deadline.expired()) {
@@ -341,10 +355,16 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
             } else {
               partial = { outcome: "PASS", reasonCodes: [], evidence: refs };
             }
+            if (execution.report?.execution) {
+              executionReports.push({ commandId: check.checkId, report: execution.report.execution });
+            }
           }
         }
       } catch (error) {
-        partial = { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], evidence: [], details: { failure: String(error) } };
+        const reasonCode = ["SANDBOX_UNAVAILABLE", "EXECUTION_BACKEND_REQUIRED"].includes(error?.reasonCode)
+          ? error.reasonCode
+          : "INFRASTRUCTURE_FAILURE";
+        partial = { outcome: "INFRA_FAILURE", reasonCodes: [reasonCode], evidence: [], details: { failure: String(error) } };
       }
 
       const result = {
@@ -481,7 +501,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   }
 
   const receipt = {
-    schemaVersion: "promotion-receipt@1",
+    schemaVersion: boundedContracts ? "promotion-receipt@2" : "promotion-receipt@1",
     kernelRelease: KERNEL_RELEASE,
     repositoryId: plan.repositoryId,
     baseCommit: plan.baseCommit,
@@ -505,13 +525,29 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     completedAt,
     disposition: reduced.disposition,
     reasonCodes: reduced.reasonCodes,
-    signing: null
+    signing: null,
+    ...(boundedContracts ? { executionReports } : {})
   };
-  const receiptCheck = validateValue("promotion-receipt@1", receipt);
+  const receiptCheck = validateValue(boundedContracts ? "promotion-receipt@2" : "promotion-receipt@1", receipt);
   if (!receiptCheck.ok) {
     return failure("SCHEMA_VIOLATION", receiptCheck.errors);
   }
   const receiptBytes = Buffer.from(canonicalize(receipt), "utf8");
+  const selfVerification = verifyReceipt({
+    receiptBytes,
+    planBytes: Buffer.from(compiled.planBytes, "utf8"),
+    // A PROMOTABLE receipt must bind a fully intact evidence store before it
+    // can be published. A BLOCKED evidence-integrity fixture is allowed to
+    // retain and report the corrupt store; its bare receipt must still verify
+    // and it can never authorize promotion.
+    evidenceDir: receipt.disposition === "PROMOTABLE" ? evidenceRootDir : null
+  });
+  if (!selfVerification.ok) {
+    return failure(
+      selfVerification.errors[0]?.reasonCode ?? "EVIDENCE_MUTATED",
+      selfVerification.errors
+    );
+  }
   writeFileSync(join(outDir, "receipt.json"), receiptBytes);
   writeFileSync(join(outDir, "plan.json"), Buffer.from(compiled.planBytes, "utf8"));
 

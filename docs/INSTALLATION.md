@@ -10,6 +10,10 @@ service.
 - Git at one of the distribution's fixed system paths.
 - macOS with `sandbox-exec`, or Linux with Docker Engine at `/usr/bin/docker`
   or `/usr/local/bin/docker`.
+- Target commands may use only the kernel's exact Node interpreter, run without a shell,
+  and receive no network access. Existing `@1` contracts and the `STRICT` preset deny
+  process creation. Versioned `@2` authorities may request `STANDARD_TEST`, whose exact
+  process-and-thread task ceiling is enforced only by the pinned Linux OCI backend.
 
 Other platforms fail closed with `SANDBOX_UNAVAILABLE`. On Linux the kernel
 uses an immutable OCI image and bounded process tree. On macOS strict target
@@ -78,7 +82,21 @@ Evaluation uses `--pull never`. A missing image, substituted Docker binary,
 remote daemon override, non-Linux daemon, isolation-probe failure, or identity
 drift produces `SANDBOX_UNAVAILABLE` instead of weakening isolation.
 
+Confirm the live execution route without invoking a provider or running target code:
+
+```sh
+node src/cli.mjs execution-preflight
+```
+
+The machine response exposes two named presets. `STRICT` is available on a conforming
+macOS or Linux worker. `STANDARD_TEST` is available only after the Linux worker proves
+the bounded child-process path and a planted `pids.max` event. Agents may use the result
+to route an immutable run; they cannot pass a process count or backend override to
+`evaluate`.
+
 ## Install inside a target repository
+
+From the repository to be governed:
 
 ```sh
 npm install --save-dev "git+https://github.com/Shedu-ai/shedu-promotion-kernel.git#v0.4.0-experimental.1"
@@ -115,22 +133,57 @@ the exact digest workflow.
 
 ## Compile and evaluate a target
 
-A `work-contract@1` binds the target's full base and candidate commit ids,
-authorized path scope, exact validation-command argument arrays, resource
-ceilings, and the raw-byte SHA-256 digest of its base-owned policy profile.
+A real `work-contract@1` or `work-contract@2` must contain the target's full base and candidate object IDs,
+exact path scope, exact validation-command argument arrays, and the raw-byte SHA-256
+digest of `.shedu/policy/profile.json`. It must point to policy authority already committed
+at the declared base.
 
 ```sh
 npx shedu-kernel-experimental compile \
   --contract /absolute/path/to/work-contract.json \
   --repo /absolute/path/to/target-repository
+```
 
+Compilation emits the corresponding canonical `compiled-policy-plan@1` or
+`compiled-policy-plan@2` document on stdout or one
+machine-readable blocking error on stderr. The sample verifier constructs a disposable
+real Git repository and exercises this exact CLI path; use it as the executable reference
+instead of copying placeholder commit IDs into production.
+
+## Bounded Node test suites
+
+Use `@2` only when a base-owned target validator or validation command genuinely needs
+child processes. The three independent authorities must all admit the same requirement:
+
+```json
+{"class":"BOUNDED_PROCESS_TREE","maxTasks":128}
+```
+
+That closed value is the machine expansion of the shipped `STANDARD_TEST` preset. It is
+declared as `validator.executionRequirement` in `policy-pack@2`, as
+`resourceCeilings.executionCeiling` in `work-contract@2`, and as `executionPolicy` in
+`policy-profile@2`. Compilation takes the exact pack requirement and rejects it if either
+ceiling is lower. Neither a prompt, retry, environment variable, CLI flag, nor candidate
+edit can raise it. The compiled plan additionally binds `bounded-process-tree@1` and the
+portable digest of the pinned image, bounded seccomp policy, and trusted supervisor.
+
+`maxTasks` is intentionally not called `maxProcesses`: Linux cgroups count processes and
+threads together. If Linux OCI is unavailable, the same contract returns
+`EXECUTION_BACKEND_REQUIRED` or `SANDBOX_UNAVAILABLE`; it never falls back to a weaker
+native mode.
+
+The public experimental launcher supplies the admitted external authority for
+its exact certified kernel. Evaluate with:
+
+```sh
 npx shedu-kernel-experimental evaluate \
   --contract /absolute/path/to/work-contract.json \
   --repo /absolute/path/to/target-repository \
   --out /absolute/path/to/kernel-output
 ```
 
-Evaluation emits a canonical `promotion-receipt@1` with a disposition of
+Evaluation emits a canonical `promotion-receipt@1` or
+`promotion-receipt@2` with a disposition of
 `PROMOTABLE` or `BLOCKED` and atomically publishes the complete plan, receipt,
 and content-addressed evidence under the output directory.
 

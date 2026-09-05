@@ -33,6 +33,11 @@
     "src/cli.mjs",
     "conformance"
   ],
+  "executionPreflightArgv": [
+    "node",
+    "src/cli.mjs",
+    "execution-preflight"
+  ],
   "admittedPromotionArgv": [
     "node",
     "src/cli.mjs",

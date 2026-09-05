@@ -4,6 +4,7 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
+import { executionCapabilityId } from "./execution-policy.mjs";
 
 // Official node:22-bookworm-slim OCI index resolved from Docker Hub and
 // frozen by digest on 2026-08-27. The digest, not the mutable tag, is the
@@ -12,6 +13,9 @@ export const LINUX_OCI_IMAGE_DIGEST = "sha256:83f487e0a63425e5b4d146fb5e5be574bc
 export const LINUX_OCI_IMAGE = `docker.io/library/node@${LINUX_OCI_IMAGE_DIGEST}`;
 export const LINUX_OCI_NODE_PATH = "/usr/local/bin/node";
 export const LINUX_OCI_SECCOMP_PATH = fileURLToPath(new URL("../security/linux-seccomp.json", import.meta.url));
+export const LINUX_OCI_BOUNDED_SECCOMP_PATH = fileURLToPath(new URL("../security/linux-seccomp-bounded.json", import.meta.url));
+export const LINUX_OCI_SUPERVISOR_PATH = fileURLToPath(new URL("./process-tree-supervisor.mjs", import.meta.url));
+export const LINUX_OCI_SUPERVISOR_CONTAINER_PATH = "/shedu-kernel/process-tree-supervisor.mjs";
 
 const DOCKER_CANDIDATES = Object.freeze([
   "/usr/bin/docker",
@@ -29,6 +33,29 @@ export class OciRuntimeError extends Error {
 
 function hashFile(path) {
   return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
+}
+
+// Portable authority is plan material: it deliberately excludes the host's
+// Docker client, daemon version, and local image id, while binding every
+// immutable byte that defines bounded execution. Runtime authority is
+// recorded separately by buildAuthority() and proves which host enforced it.
+export function portableLinuxExecutionAuthority(executionClass) {
+  const capabilityId = executionCapabilityId(executionClass);
+  if (executionClass === "SINGLE_PROCESS") {
+    return { capabilityId, portableAuthorityDigest: null };
+  }
+  if (executionClass !== "BOUNDED_PROCESS_TREE") {
+    throw new OciRuntimeError(`unsupported execution class ${JSON.stringify(executionClass)}`);
+  }
+  const identity = {
+    schemaVersion: "linux-oci-portable-execution-authority@1",
+    capabilityId,
+    imageReference: LINUX_OCI_IMAGE,
+    nodePath: LINUX_OCI_NODE_PATH,
+    seccompDigest: digestOfBytes(readFileSync(LINUX_OCI_BOUNDED_SECCOMP_PATH)),
+    supervisorDigest: digestOfBytes(readFileSync(LINUX_OCI_SUPERVISOR_PATH))
+  };
+  return { capabilityId, portableAuthorityDigest: digestOfCanonical(identity) };
 }
 
 export function ociHostEnvironment(extra = {}) {
@@ -103,7 +130,9 @@ function buildAuthority() {
   if (!repositoryDigests.some((entry) => entry.endsWith(`@${LINUX_OCI_IMAGE_DIGEST}`))) {
     throw new OciRuntimeError("local image identity is not bound to the required OCI index digest");
   }
-  const seccompBytes = readFileSync(LINUX_OCI_SECCOMP_PATH);
+  const strictSeccompBytes = readFileSync(LINUX_OCI_SECCOMP_PATH);
+  const boundedSeccompBytes = readFileSync(LINUX_OCI_BOUNDED_SECCOMP_PATH);
+  const supervisorBytes = readFileSync(LINUX_OCI_SUPERVISOR_PATH);
   const identity = {
     schemaVersion: "linux-oci-authority@1",
     runtime: { path: runtime.path, digest: runtime.digest },
@@ -120,7 +149,14 @@ function buildAuthority() {
       imageId: image.Id,
       repositoryDigests: [...repositoryDigests].sort()
     },
-    seccompDigest: digestOfBytes(seccompBytes)
+    seccompDigests: {
+      strict: digestOfBytes(strictSeccompBytes),
+      bounded: digestOfBytes(boundedSeccompBytes)
+    },
+    supervisorDigest: digestOfBytes(supervisorBytes),
+    portableAuthorityDigests: {
+      bounded: portableLinuxExecutionAuthority("BOUNDED_PROCESS_TREE").portableAuthorityDigest
+    }
   };
   return {
     ...identity,

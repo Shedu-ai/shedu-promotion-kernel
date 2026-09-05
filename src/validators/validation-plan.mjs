@@ -1,5 +1,6 @@
 import { canonicalize } from "../canonical-json.mjs";
 import { runTargetCommand } from "../runner.mjs";
+import { runtimeExecutionRequirement } from "../execution-policy.mjs";
 
 // Control point: commands execute in their declared phase, one per-phase
 // check instance, bounded by the evaluation deadline.
@@ -21,12 +22,15 @@ export function commandsForPhase(validationCommands, phase) {
 // omitted work can never look like a pass. Commands are exact argv arrays
 // end-to-end; there is no shell and no string reconstruction.
 export function validationPlanExecute(context) {
-  const { workContract, candidateDir, baseDir, check, evidence, deadline } = context;
+  const { workContract, plan, candidateDir, baseDir, check, evidence, deadline } = context;
   if (!candidateDir) {
     return { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], details: { failure: "no candidate workspace" } };
   }
 
-  const phaseCommands = commandsForPhase(workContract.validationCommands, check.phase);
+  const declaredCommands = plan.schemaVersion === "compiled-policy-plan@2"
+    ? plan.validationCommands
+    : workContract.validationCommands;
+  const phaseCommands = commandsForPhase(declaredCommands, check.phase);
   const reasonCodes = new Set();
   const evidenceRefs = [];
   const reports = [];
@@ -55,12 +59,13 @@ export function validationPlanExecute(context) {
         envAllowlist: [],
         timeoutMs,
         maxOutputBytes: workContract.resourceCeilings.maxOutputBytes,
-        maxProcesses: workContract.resourceCeilings.maxProcesses,
+        maxProcesses: workContract.schemaVersion === "work-contract@1" ? workContract.resourceCeilings.maxProcesses : undefined,
+        executionRequirement: command.execution ? runtimeExecutionRequirement(command.execution) : null,
         readRoots
       });
     } catch (error) {
       infrastructureFailed = true;
-      if (error?.reasonCode === "SANDBOX_UNAVAILABLE") reasonCodes.add("SANDBOX_UNAVAILABLE");
+      if (["SANDBOX_UNAVAILABLE", "EXECUTION_BACKEND_REQUIRED"].includes(error?.reasonCode)) reasonCodes.add(error.reasonCode);
       reports.push({ commandId: command.commandId, executed: false, error: String(error) });
       continue;
     }
@@ -100,6 +105,8 @@ export function validationPlanExecute(context) {
       infrastructureFailed = true;
     } else if (execution.report.timedOut) {
       reasonCodes.add("COMMAND_TIMEOUT");
+    } else if (execution.taskBudgetExceeded) {
+      reasonCodes.add("TASK_BUDGET_EXCEEDED");
     } else if (!execution.succeeded) {
       reasonCodes.add("COMMAND_FAILED");
     } else if (deadline && deadline.expired()) {

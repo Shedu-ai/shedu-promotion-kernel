@@ -54,7 +54,11 @@ test("a registered control whose runtime proof fails fails closure (not a string
   const proofs = { ...CONTROL_PROOFS, "sandbox-network-isolation": () => ({ passed: false, detail: "denial removed" }) };
   const report = runControlCensus({ srcDir: SRC, registry: loadRegistry(), proofs });
   assert.equal(report.complete, false);
-  assert.ok(report.findings.some((f) => f.id === "sandbox-network-isolation" && f.reasonCode === "CONTROL_UNPROVEN"));
+  assert.ok(report.findings.some(
+    (f) => f.id === "sandbox-network-isolation" &&
+      f.reasonCode === "CONTROL_UNPROVEN" &&
+      f.message.includes("denial removed")
+  ));
 });
 
 test("removing sandbox isolation makes a bind succeed — the runtime proof would catch it", { skip: process.platform !== "darwin" }, () => {
