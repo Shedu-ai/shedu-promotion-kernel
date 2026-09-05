@@ -113,10 +113,11 @@ test("no-argument execution is the read-only live status projection", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "");
   const status = JSON.parse(result.stdout);
-  assert.equal(status.schemaVersion, "kernel-agent-status@1");
+  assert.equal(status.schemaVersion, "kernel-agent-status@2");
   assert.equal(status.implementationStatus, "FOUNDATION_ONLY");
   assert.equal(status.promotionEntrypointAvailable, false);
   assert.deepEqual(status.admissionReasonCodes, ["NOT_ADMITTED"]);
+  assert.deepEqual(status.lifecycleReasonCodes, []);
   assert.deepEqual(status.nextActions, ["OBTAIN_EXTERNAL_ADMISSION"]);
   assert.ok(status.capabilities.includes("kernel-agent-interface@1"));
 });

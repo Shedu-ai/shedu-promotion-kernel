@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "derived-seccomp-provenance@1",
+  "sourcePolicy": "linux-seccomp.json",
+  "sourceDigest": "sha256:3ab71157475e387f6c0a8cc153ad00b2883d35dcc4058325088a4dbc22bb62cd",
+  "generator": "../scripts/generate-bounded-seccomp.mjs",
+  "generatorDigest": "sha256:c5c36df704110c1d71f48806e9e50b23df25df4d77f97308d0eba5d751ba4b2c",
+  "derivedPolicy": "linux-seccomp-bounded.json",
+  "derivedDigest": "sha256:23e99da3da002387f42f196720abd76e0722ddcc21a58d1ec99c01bc8e21d696"
+}

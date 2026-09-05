@@ -2,18 +2,25 @@ import { readFileSync } from "node:fs";
 import { CanonicalJsonError, parseStrict, validateRelativePath } from "./canonical-json.mjs";
 import { validateAgainstSchema } from "./json-schema.mjs";
 import { isReasonCode } from "./reason-codes.mjs";
+import { EXECUTION_PRESETS, executionCapabilityId, isExecutionRequirement } from "./execution-policy.mjs";
 
 const SCHEMA_FILES = {
   "work-contract@1": "work-contract.schema.json",
+  "work-contract@2": "work-contract-v2.schema.json",
   "policy-pack@1": "policy-pack.schema.json",
+  "policy-pack@2": "policy-pack-v2.schema.json",
   "policy-profile@1": "policy-profile.schema.json",
+  "policy-profile@2": "policy-profile-v2.schema.json",
   "compiled-policy-plan@1": "compiled-policy-plan.schema.json",
+  "compiled-policy-plan@2": "compiled-policy-plan-v2.schema.json",
   "promotion-receipt@1": "promotion-receipt.schema.json",
+  "promotion-receipt@2": "promotion-receipt-v2.schema.json",
   "capability-index@1": "capability-index.schema.json",
   "mechanism-registry@1": "mechanism-registry.schema.json",
   "check-result@1": "check-result.schema.json",
   "orphan-census@1": "orphan-census.schema.json",
   "command-report@1": "command-report.schema.json",
+  "command-report@2": "command-report-v2.schema.json",
   "evidence-index@1": "evidence-index.schema.json",
   "prior-art-query@1": "prior-art-query.schema.json",
   "conformance-status@2": "conformance-status.schema.json",
@@ -21,8 +28,15 @@ const SCHEMA_FILES = {
   "control-surface@1": "control-surface.schema.json",
   "kernel-next-action@1": "kernel-next-action.schema.json",
   "kernel-agent-status@1": "kernel-agent-status.schema.json",
+  "kernel-agent-status@2": "kernel-agent-status-v2.schema.json",
   "kernel-evaluation-summary@1": "kernel-evaluation-summary.schema.json",
-  "kernel-evidence-view@1": "kernel-evidence-view.schema.json"
+  "kernel-evidence-view@1": "kernel-evidence-view.schema.json",
+  "execution-capabilities@1": "execution-capabilities.schema.json",
+  "kernel-lifecycle-attestation@1": "kernel-lifecycle-attestation.schema.json",
+  "kernel-pilot-qualification-policy@1": "kernel-pilot-qualification-policy.schema.json",
+  "kernel-pilot-qualification-input@1": "kernel-pilot-qualification-input.schema.json",
+  "kernel-pilot-qualification-receipt@1": "kernel-pilot-qualification-receipt.schema.json",
+  "promotion-kernel-activation-distribution@2": "promotion-kernel-activation-distribution-v2.schema.json"
 };
 
 const schemas = new Map(
@@ -121,9 +135,17 @@ export function isSecretEnvName(name) {
   return wordsNameSecret(name.toLowerCase().split("_").filter(Boolean));
 }
 
+export function isReservedInternalEnvName(name) {
+  return typeof name === "string" && name.startsWith("SHEDU_INTERNAL_");
+}
+
 function envAllowlistSecretErrors(names, location) {
   const out = [];
   for (const name of names) {
+    if (isReservedInternalEnvName(name)) {
+      out.push(err("SCHEMA_VIOLATION", `${location}: environment name ${name} is reserved for kernel-to-supervisor authority`));
+      continue;
+    }
     const words = name.toLowerCase().split("_").filter(Boolean);
     if (wordsNameSecret(words)) {
       out.push(err("SECRET_BEARING_FIELD", `${location}: environment name ${name} names a credential and cannot be allowlisted`));
@@ -155,6 +177,37 @@ function reasonCodeErrors(codes, location) {
 
 function orderedUnique(values) {
   return values.length === new Set(values).size && values.every((value, index) => index === 0 || values[index - 1] < value);
+}
+
+function executionRequirementErrors(value, location) {
+  if (!isExecutionRequirement(value)) {
+    return [err("SCHEMA_VIOLATION", `${location} is not a closed execution requirement`)];
+  }
+  if (value.class === "SINGLE_PROCESS" && value.maxTasks !== EXECUTION_PRESETS.STRICT.maxTasks) {
+    return [err("SCHEMA_VIOLATION", `${location}: SINGLE_PROCESS must use the fixed STRICT task ceiling` )];
+  }
+  if (value.class === "BOUNDED_PROCESS_TREE" && value.maxTasks <= EXECUTION_PRESETS.STRICT.maxTasks) {
+    return [err("SCHEMA_VIOLATION", `${location}: BOUNDED_PROCESS_TREE must exceed the STRICT task allowance`)];
+  }
+  return [];
+}
+
+function compiledExecutionErrors(value, location) {
+  const errors = executionRequirementErrors(
+    { class: value?.class, maxTasks: value?.maxTasks },
+    location
+  );
+  if (errors.length > 0) return errors;
+  if (value.capabilityId !== executionCapabilityId(value.class)) {
+    errors.push(err("SCHEMA_VIOLATION", `${location}: capability id does not match the execution class`));
+  }
+  if (value.class === "BOUNDED_PROCESS_TREE" && value.portableAuthorityDigest === null) {
+    errors.push(err("SCHEMA_VIOLATION", `${location}: bounded execution must bind a portable authority digest`));
+  }
+  if (value.class === "SINGLE_PROCESS" && value.portableAuthorityDigest !== null) {
+    errors.push(err("SCHEMA_VIOLATION", `${location}: single-process execution has no portable Linux-only authority`));
+  }
+  return errors;
 }
 
 const SEMANTIC = {
@@ -331,6 +384,96 @@ const SEMANTIC = {
     return errors;
   },
 
+  "kernel-agent-status@2": (doc) => {
+    const errors = [];
+    errors.push(...reasonCodeErrors(doc.admissionReasonCodes, "admissionReasonCodes"));
+    errors.push(...reasonCodeErrors(doc.lifecycleReasonCodes, "lifecycleReasonCodes"));
+    const admitted = doc.implementationStatus !== "FOUNDATION_ONLY";
+    if (doc.promotionEntrypointAvailable !== admitted) {
+      errors.push(err("SCHEMA_VIOLATION", "implementationStatus contradicts promotionEntrypointAvailable"));
+    }
+    const expectedReasons = admitted ? [] : ["NOT_ADMITTED"];
+    if (JSON.stringify(doc.admissionReasonCodes) !== JSON.stringify(expectedReasons)) {
+      errors.push(err("SCHEMA_VIOLATION", "admissionReasonCodes contradict the projected admission state"));
+    }
+    if ((doc.implementationStatus === "FOUNDATION_ONLY" || doc.implementationStatus === "EXPERIMENTAL") && doc.lifecycleEvidence !== null) {
+      errors.push(err("SCHEMA_VIOLATION", "lower lifecycle states cannot project higher-state evidence"));
+    }
+    if ((doc.implementationStatus === "PILOT_ELIGIBLE" || doc.implementationStatus === "CERTIFIED") && doc.lifecycleEvidence === null) {
+      errors.push(err("SCHEMA_VIOLATION", "higher lifecycle states require lifecycle evidence"));
+    }
+    if (doc.implementationStatus !== "EXPERIMENTAL" && doc.lifecycleReasonCodes.length > 0) {
+      errors.push(err("SCHEMA_VIOLATION", "only a reduced EXPERIMENTAL state may project a higher-lifecycle failure"));
+    }
+    if (!orderedUnique(doc.capabilities)) {
+      errors.push(err("SCHEMA_VIOLATION", "capabilities must be unique and sorted"));
+    }
+    return errors;
+  },
+
+  "kernel-lifecycle-attestation@1": (doc) => {
+    const errors = [];
+    const issued = Date.parse(doc.validity.issuedAt);
+    const from = Date.parse(doc.validity.validFrom);
+    const expires = Date.parse(doc.validity.expiresAt);
+    if (![issued, from, expires].every(Number.isFinite) || issued > from || from >= expires) {
+      errors.push(err("SCHEMA_VIOLATION", "lifecycle validity interval is not ordered"));
+    }
+    if (!orderedUnique(doc.executionClaims.map((claim) => `${claim.platform}:${claim.profile}`))) {
+      errors.push(err("SCHEMA_VIOLATION", "executionClaims must be unique and sorted"));
+    }
+    if (doc.requestedStatus === "PILOT_ELIGIBLE") {
+      if (doc.evidence.kind !== "PILOT_QUALIFICATION_COMPLETE") {
+        errors.push(err("SCHEMA_VIOLATION", "PILOT_ELIGIBLE requires pilot qualification evidence"));
+      }
+      if (doc.predecessor.status !== "EXPERIMENTAL" && doc.predecessor.status !== "PILOT_ELIGIBLE") {
+        errors.push(err("SCHEMA_VIOLATION", "PILOT_ELIGIBLE has an illegal predecessor"));
+      }
+    }
+    if (doc.requestedStatus === "CERTIFIED") {
+      if (doc.evidence.kind !== "OPERATIONAL_CERTIFICATION_COMPLETE" || doc.predecessor.status !== "PILOT_ELIGIBLE") {
+        errors.push(err("SCHEMA_VIOLATION", "CERTIFIED requires operational evidence and a PILOT_ELIGIBLE predecessor"));
+      }
+    }
+    if (doc.predecessor.status === "EXPERIMENTAL" && (doc.sequence !== 1 || doc.supersedes !== null)) {
+      errors.push(err("SCHEMA_VIOLATION", "the first lifecycle advancement must use sequence 1 with no superseded lifecycle attestation"));
+    }
+    if (doc.predecessor.status !== "EXPERIMENTAL" && doc.supersedes !== doc.predecessor.attestationDigest) {
+      errors.push(err("SCHEMA_VIOLATION", "renewal or advancement must supersede its exact lifecycle predecessor"));
+    }
+    return errors;
+  },
+
+  "kernel-pilot-qualification-policy@1": (doc) => {
+    const errors = [];
+    const ids = doc.requiredChecks.map((check) => check.checkId);
+    for (const id of duplicateIds(ids)) errors.push(err("DUPLICATE_CHECK_ID", `qualification check ${id} is declared more than once`));
+    if (!orderedUnique(ids)) errors.push(err("SCHEMA_VIOLATION", "qualification requiredChecks must be sorted by checkId"));
+    for (const check of doc.requiredChecks) errors.push(...argvSecretErrors(check.argv, `requiredChecks[${check.checkId}].argv`));
+    return errors;
+  },
+
+  "kernel-pilot-qualification-input@1": (doc) => {
+    const errors = [];
+    const ids = doc.results.map((result) => result.checkId);
+    for (const id of duplicateIds(ids)) errors.push(err("DUPLICATE_RESULT", `qualification result ${id} appears more than once`));
+    if (!orderedUnique(ids)) errors.push(err("SCHEMA_VIOLATION", "qualification results must be sorted by checkId"));
+    for (const result of doc.results) errors.push(...argvSecretErrors(result.argv, `results[${result.checkId}].argv`));
+    const artifactIds = doc.privateEvidenceManifest.map((artifact) => artifact.artifactId);
+    for (const id of duplicateIds(artifactIds)) errors.push(err("DUPLICATE_ENTRY_ID", `qualification artifact ${id} appears more than once`));
+    if (!orderedUnique(artifactIds)) errors.push(err("SCHEMA_VIOLATION", "privateEvidenceManifest must be sorted by artifactId"));
+    return errors;
+  },
+
+  "promotion-kernel-activation-distribution@2": (doc) => {
+    const errors = [];
+    for (const [label, member] of [["authority", doc.authority], ...Object.entries(doc.evidence)]) {
+      errors.push(...pathErrors([member.path], `${label}.path`));
+    }
+    if (!orderedUnique(doc.commands)) errors.push(err("SCHEMA_VIOLATION", "activation commands must be unique and sorted"));
+    return errors;
+  },
+
   "kernel-evaluation-summary@1": (doc) => {
     const errors = [];
     if (doc.evaluationState === "ABSENT") {
@@ -386,6 +529,75 @@ const SEMANTIC = {
   }
 };
 
+SEMANTIC["work-contract@2"] = (doc) => {
+  const errors = SEMANTIC["work-contract@1"](doc);
+  errors.push(...executionRequirementErrors(doc.resourceCeilings.executionCeiling, "resourceCeilings.executionCeiling"));
+  for (const command of doc.validationCommands) {
+    errors.push(...executionRequirementErrors(command.executionRequirement, `validationCommands[${command.commandId}].executionRequirement`));
+  }
+  return errors;
+};
+
+SEMANTIC["policy-pack@2"] = (doc) => {
+  const errors = SEMANTIC["policy-pack@1"](doc);
+  for (const check of doc.checks) {
+    if (check.validator.kind === "TARGET_COMMAND") {
+      errors.push(...executionRequirementErrors(check.validator.executionRequirement, `checks[${check.checkId}].validator.executionRequirement`));
+    }
+  }
+  return errors;
+};
+
+SEMANTIC["policy-profile@2"] = (doc) => {
+  const errors = SEMANTIC["policy-profile@1"](doc);
+  errors.push(...executionRequirementErrors(doc.executionPolicy, "executionPolicy"));
+  return errors;
+};
+
+SEMANTIC["compiled-policy-plan@2"] = (doc) => {
+  const errors = SEMANTIC["compiled-policy-plan@1"](doc);
+  errors.push(...executionRequirementErrors(doc.executionPolicy.contractCeiling, "executionPolicy.contractCeiling"));
+  errors.push(...executionRequirementErrors(doc.executionPolicy.profileCeiling, "executionPolicy.profileCeiling"));
+  for (const command of doc.validationCommands) {
+    errors.push(...compiledExecutionErrors(command.execution, `validationCommands[${command.commandId}].execution`));
+  }
+  for (const check of doc.checks) {
+    if (check.validator.kind === "TARGET_COMMAND") {
+      if (check.execution === null) errors.push(err("SCHEMA_VIOLATION", `checks[${check.checkId}].execution is required for a target command`));
+      else errors.push(...compiledExecutionErrors(check.execution, `checks[${check.checkId}].execution`));
+    } else if (check.execution !== null) {
+      errors.push(err("SCHEMA_VIOLATION", `checks[${check.checkId}].execution must be null for a builtin validator`));
+    }
+  }
+  return errors;
+};
+
+SEMANTIC["command-report@2"] = (doc) => {
+  const errors = executionRequirementErrors(
+    { class: doc.execution.class, maxTasks: doc.execution.maxTasks },
+    "execution"
+  );
+  errors.push(...compiledExecutionErrors(doc.execution, "execution"));
+  if (doc.execution.backend === "darwin-sandbox-exec" && doc.execution.class !== "SINGLE_PROCESS") {
+    errors.push(err("SCHEMA_VIOLATION", "native macOS cannot claim bounded process-tree enforcement"));
+  }
+  if (doc.execution.backend === "linux-oci" && doc.execution.backendAuthorityDigest === null) {
+    errors.push(err("SCHEMA_VIOLATION", "Linux OCI reports must bind their backend authority digest"));
+  }
+  return errors;
+};
+
+SEMANTIC["promotion-receipt@2"] = (doc) => {
+  const errors = SEMANTIC["promotion-receipt@1"](doc);
+  for (const id of duplicateIds(doc.executionReports.map((entry) => entry.commandId))) {
+    errors.push(err("DUPLICATE_COMMAND_ID", `execution report ${id} is declared more than once`));
+  }
+  for (const entry of doc.executionReports) {
+    errors.push(...SEMANTIC["command-report@2"]({ execution: entry.report }));
+  }
+  return errors;
+};
+
 // Validate an already-parsed value against a contract kind: schema first,
 // then contract-specific semantic rules (containment, uniqueness, wiring).
 export function validateValue(kind, value) {
@@ -409,6 +621,24 @@ export function validateDocument(kind, bytes) {
   } catch (e) {
     if (e instanceof CanonicalJsonError) return { ok: false, errors: [err(e.reasonCode, e.message)] };
     throw e;
+  }
+  return validateValue(kind, value);
+}
+
+// Strict-parse once, then select only from an explicit closed version set.
+// Callers never guess a version after accepting the document, and an unknown
+// schemaVersion cannot fall back to an older, weaker schema.
+export function validateVersionedDocument(kinds, bytes) {
+  let value;
+  try {
+    value = parseStrict(bytes);
+  } catch (e) {
+    if (e instanceof CanonicalJsonError) return { ok: false, errors: [err(e.reasonCode, e.message)] };
+    throw e;
+  }
+  const kind = value?.schemaVersion;
+  if (!kinds.includes(kind)) {
+    return { ok: false, errors: [err("SCHEMA_VIOLATION", `unsupported schemaVersion ${JSON.stringify(kind)}`)] };
   }
   return validateValue(kind, value);
 }

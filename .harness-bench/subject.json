@@ -33,6 +33,11 @@
     "src/cli.mjs",
     "conformance"
   ],
+  "executionPreflightArgv": [
+    "node",
+    "src/cli.mjs",
+    "execution-preflight"
+  ],
   "admittedPromotionArgv": [
     "node",
     "src/cli.mjs",
@@ -45,6 +50,13 @@
     "attestation": { "flag": "--attestation", "kind": "path", "required": false, "admissionMaterial": true },
     "pinnedKey": { "flag": "--pinned-key", "kind": "hex64", "required": false, "admissionMaterial": true },
     "expectedCommit": { "flag": "--expected-commit", "kind": "sha40", "required": false, "admissionMaterial": true },
+    "lifecycleAttestation": { "flag": "--lifecycle-attestation", "kind": "path", "required": false, "admissionMaterial": true },
+    "lifecycleEvidence": { "flag": "--lifecycle-evidence", "kind": "path", "required": false, "admissionMaterial": true },
+    "lifecyclePolicy": { "flag": "--lifecycle-policy", "kind": "path", "required": false, "admissionMaterial": true },
+    "activationSpecification": { "flag": "--activation-specification", "kind": "path", "required": false, "admissionMaterial": true },
+    "conformanceCertification": { "flag": "--conformance-certification", "kind": "path", "required": false, "admissionMaterial": true },
+    "predecessorLifecycleAttestation": { "flag": "--predecessor-lifecycle-attestation", "kind": "path", "required": false, "admissionMaterial": true },
+    "lifecycleAuthorityId": { "flag": "--lifecycle-authority-id", "kind": "kebab", "required": false, "admissionMaterial": true },
     "signKey": { "flag": "--sign-key", "kind": "path", "required": false },
     "projection": { "flag": "--projection", "kind": "projection", "required": false }
   },

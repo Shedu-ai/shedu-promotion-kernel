@@ -1,5 +1,5 @@
 import { validateValue } from "./contracts.mjs";
-import { actionsForAdmission, actionsForEvaluation } from "./next-actions.mjs";
+import { actionsForAdmission, actionsForEvaluation, actionsForLifecycle } from "./next-actions.mjs";
 
 const contradiction = (message) => ({ reasonCode: "SCHEMA_VIOLATION", message });
 
@@ -15,6 +15,14 @@ export function validateAgentProjection(kind, value) {
     const expected = actionsForAdmission(value.promotionEntrypointAvailable);
     if (JSON.stringify(value.nextActions) !== JSON.stringify(expected)) {
       errors.push(contradiction("nextActions contradict the projected admission state"));
+    }
+  } else if (kind === "kernel-agent-status@2") {
+    const expected = actionsForLifecycle(value.implementationStatus, {
+      lifecycleEvidencePresent: value.lifecycleEvidence !== null,
+      failureCode: value.lifecycleReasonCodes[0] ?? null
+    });
+    if (JSON.stringify(value.nextActions) !== JSON.stringify(expected)) {
+      errors.push(contradiction("nextActions contradict the projected lifecycle state"));
     }
   } else if (kind === "kernel-evaluation-summary@1") {
     let expected;

@@ -6,9 +6,10 @@ import {
   verify as cryptoVerify
 } from "node:crypto";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument } from "./contracts.mjs";
+import { validateDocument, validateVersionedDocument } from "./contracts.mjs";
 import { reduceDisposition } from "./reducer.mjs";
 import { verifyEvidenceDir } from "./evidence.mjs";
+import { portableLinuxExecutionAuthority } from "./oci-runtime.mjs";
 
 // Control points: offline receipt verification and optional Ed25519 signing.
 export const CONTROL_POINTS = Object.freeze(["receipt-verification", "receipt-signing"]);
@@ -75,13 +76,77 @@ export function verifyReceipt({
   const errors = [];
   const fail = (reasonCode, message) => errors.push({ reasonCode, message });
 
-  const receiptDoc = validateDocument("promotion-receipt@1", receiptBytes);
+  const receiptDoc = validateVersionedDocument(["promotion-receipt@1", "promotion-receipt@2"], receiptBytes);
   if (!receiptDoc.ok) return { ok: false, errors: receiptDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
-  const planDoc = validateDocument("compiled-policy-plan@1", planBytes);
+  const expectedPlanKind = receiptDoc.value.schemaVersion === "promotion-receipt@2"
+    ? "compiled-policy-plan@2"
+    : "compiled-policy-plan@1";
+  const planDoc = validateDocument(expectedPlanKind, planBytes);
   if (!planDoc.ok) return { ok: false, errors: planDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
   const receipt = receiptDoc.value;
   const plan = planDoc.value;
   const planDigest = digestOfCanonical(plan);
+
+  if (receipt.schemaVersion === "promotion-receipt@2") {
+    const expected = new Map();
+    for (const command of plan.validationCommands) {
+      expected.set(command.commandId, { execution: command.execution, ownerCheckId: null, phase: command.phase });
+    }
+    for (const check of plan.checks) {
+      if (check.validator.kind === "TARGET_COMMAND") {
+        expected.set(check.checkId, { execution: check.execution, ownerCheckId: check.checkId, phase: check.phase });
+      }
+    }
+    for (const [commandId, declaration] of expected) {
+      if (declaration.execution.class !== "BOUNDED_PROCESS_TREE") continue;
+      const portable = portableLinuxExecutionAuthority(declaration.execution.class);
+      if (
+        declaration.execution.capabilityId !== portable.capabilityId ||
+        declaration.execution.portableAuthorityDigest !== portable.portableAuthorityDigest
+      ) {
+        fail("AUTHORITY_DIGEST_MISMATCH", `compiled execution authority for ${commandId} does not match this kernel release`);
+      }
+    }
+    const seen = new Set();
+    for (const entry of receipt.executionReports) {
+      if (seen.has(entry.commandId)) {
+        fail("RECEIPT_MUTATED", `execution report ${entry.commandId} is duplicated`);
+        continue;
+      }
+      seen.add(entry.commandId);
+      const declaration = expected.get(entry.commandId);
+      if (!declaration) {
+        fail("RECEIPT_MUTATED", `execution report ${entry.commandId} was not dispatched by the plan`);
+        continue;
+      }
+      if (
+        entry.report.class !== declaration.execution.class ||
+        entry.report.maxTasks !== declaration.execution.maxTasks ||
+        entry.report.capabilityId !== declaration.execution.capabilityId ||
+        entry.report.portableAuthorityDigest !== declaration.execution.portableAuthorityDigest
+      ) {
+        fail("RECEIPT_REPLAY", `execution report ${entry.commandId} does not bind the compiled execution authority`);
+      }
+      if (entry.report.limitFired) {
+        const owner = declaration.ownerCheckId === null
+          ? plan.checks.find((check) => check.validator.builtinId === "validation-plan-execute@1" && check.phase === declaration.phase)?.checkId
+          : declaration.ownerCheckId;
+        const result = receipt.checkResults.find((item) => item.checkId === owner);
+        if (!result?.reasonCodes.includes("TASK_BUDGET_EXCEEDED")) {
+          fail("DISPOSITION_MISMATCH", `task ceiling fired for ${entry.commandId} without reaching its check result`);
+        }
+      }
+    }
+    for (const [commandId, declaration] of expected) {
+      const owner = declaration.ownerCheckId === null
+        ? plan.checks.find((check) => check.validator.builtinId === "validation-plan-execute@1" && check.phase === declaration.phase)?.checkId
+        : declaration.ownerCheckId;
+      const result = receipt.checkResults.find((item) => item.checkId === owner);
+      if (result && ["PASS", "FIRED"].includes(result.outcome) && !seen.has(commandId)) {
+        fail("EVIDENCE_MISSING", `executed check ${owner} has no execution report for ${commandId}`);
+      }
+    }
+  }
 
   // Replay protection: the receipt must have been produced from exactly this
   // plan, over exactly this repository, base, candidate, contract, profile,

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateDocument } from "./contracts.mjs";
+import { validateVersionedDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import {
@@ -16,7 +16,7 @@ import {
 } from "./supervisor.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { runConformance } from "./conformance.mjs";
-import { isAdmitted, committedAdmission } from "./admission.mjs";
+import { admittedLifecycleStatus, isAdmitted, committedAdmission } from "./admission.mjs";
 import { readBoundedRegularFile } from "./bounded-file.mjs";
 import {
   AgentProjectionError,
@@ -26,6 +26,7 @@ import {
   projectAgentStatus,
   projectPublishedEvaluation
 } from "./agent-projection.mjs";
+import { executionPreflight } from "./execution-preflight.mjs";
 
 const AGENT_PROJECTION_WORKER = fileURLToPath(new URL("./worker-agent-projection.mjs", import.meta.url));
 
@@ -56,7 +57,8 @@ export const EXPERIMENTAL_CAPABILITIES = Object.freeze([
   "receipt-verification@1",
   "orphan-census@1",
   "prior-art-admission@1",
-  "orphan-closure@1"
+  "orphan-closure@1",
+  "bounded-process-tree@1"
 ]);
 
 // The FOUNDATION_ONLY → EXPERIMENTAL transition is never a mutable status
@@ -71,7 +73,7 @@ export function subjectProbe(admission) {
     return {
       schemaVersion: "harness-bench-subject-probe@1",
       subject: "shedu-promotion-kernel",
-      implementationStatus: "EXPERIMENTAL",
+      implementationStatus: admittedLifecycleStatus(admission),
       capabilities: [...EXPERIMENTAL_CAPABILITIES],
       promotionEntrypointAvailable: true
     };
@@ -113,9 +115,10 @@ function runCompile(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
     ]);
   }
-  const contract = validateDocument("work-contract@1", bytes);
+  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], bytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
+  const boundedContracts = workContract.schemaVersion === "work-contract@2";
   const repoDir = flags.get("--repo");
   const baseCommit = workContract.target.baseCommit;
 
@@ -127,7 +130,7 @@ function runCompile(argv) {
     baseCommit,
     path: workContract.policyProfile.path,
     expectedDigest: workContract.policyProfile.digest,
-    kind: "policy-profile@1"
+    kind: boundedContracts ? "policy-profile@2" : "policy-profile@1"
   });
   if (!profile.ok) return emitError(profile.reasonCode, profile.errors ?? [profile]);
 
@@ -151,7 +154,7 @@ function runCompile(argv) {
       baseCommit,
       path: selection.path,
       expectedDigest: selection.digest,
-      kind: "policy-pack@1"
+      kind: boundedContracts ? "policy-pack@2" : "policy-pack@1"
     });
     if (!pack.ok) return emitError(pack.reasonCode, pack.errors ?? [pack]);
     packs.push({ value: pack.value, digest: pack.digest });
@@ -186,6 +189,22 @@ function admissionOverridesFromFlags(flags) {
     if (!/^[0-9a-f]{40}$/.test(commit)) return { error: "--expected-commit must be a 40-character commit id" };
     overrides.expectedCommit = commit;
   }
+  const lifecyclePaths = [
+    ["--lifecycle-attestation", "lifecycleAttestationPath"],
+    ["--lifecycle-evidence", "lifecycleEvidencePath"],
+    ["--lifecycle-policy", "lifecyclePolicyPath"],
+    ["--activation-specification", "activationSpecificationPath"],
+    ["--conformance-certification", "conformanceCertificationPath"],
+    ["--predecessor-lifecycle-attestation", "predecessorLifecycleAttestationPath"]
+  ];
+  for (const [flag, key] of lifecyclePaths) if (flags.has(flag)) overrides[key] = flags.get(flag);
+  if (flags.has("--lifecycle-authority-id")) {
+    const authorityId = flags.get("--lifecycle-authority-id");
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(authorityId) || authorityId.length > 128) {
+      return { error: "--lifecycle-authority-id must be a bounded kebab identifier" };
+    }
+    overrides.lifecycleAuthorityId = authorityId;
+  }
   return { overrides };
 }
 
@@ -193,9 +212,9 @@ function runEvaluate(argv) {
   const operationClock = beginSupervisedOperation();
   const usage = () =>
     emitError("CLI_USAGE", [
-      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>] [--projection <full|agent>]" }
+      { reasonCode: "CLI_USAGE", message: "usage: evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem-file>] [--attestation <file>] [--pinned-key <hex>] [--expected-commit <sha>] [--lifecycle-attestation <file> --lifecycle-evidence <file> --lifecycle-policy <file> --activation-specification <file> --conformance-certification <file> --lifecycle-authority-id <id>] [--projection <full|agent>]" }
     ]);
-  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit", "--projection"]);
+  const flags = parseFlags(argv, ["--contract", "--repo", "--out", "--sign-key", "--attestation", "--pinned-key", "--expected-commit", "--lifecycle-attestation", "--lifecycle-evidence", "--lifecycle-policy", "--activation-specification", "--conformance-certification", "--predecessor-lifecycle-attestation", "--lifecycle-authority-id", "--projection"]);
   if (!flags || !flags.has("--contract") || !flags.has("--repo") || !flags.has("--out")) return usage();
   const projection = flags.get("--projection") ?? "full";
   if (projection !== "full" && projection !== "agent") return usage();
@@ -215,7 +234,7 @@ function runEvaluate(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${contractPath}` }
     ]);
   }
-  const contract = validateDocument("work-contract@1", contractBytes);
+  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const outDir = flags.get("--out");
 
@@ -232,6 +251,19 @@ function runEvaluate(argv) {
   if (att) workerEnv.SHEDU_ATTESTATION_FILE = att;
   if (key) workerEnv.SHEDU_PINNED_KEY = key;
   if (exp) workerEnv.SHEDU_EXPECTED_COMMIT = exp;
+  const lifecycleEnv = [
+    ["lifecycleAttestationPath", "SHEDU_LIFECYCLE_ATTESTATION_FILE"],
+    ["lifecycleEvidencePath", "SHEDU_LIFECYCLE_EVIDENCE_FILE"],
+    ["lifecyclePolicyPath", "SHEDU_LIFECYCLE_POLICY_FILE"],
+    ["activationSpecificationPath", "SHEDU_ACTIVATION_SPECIFICATION_FILE"],
+    ["conformanceCertificationPath", "SHEDU_CONFORMANCE_CERTIFICATION_FILE"],
+    ["predecessorLifecycleAttestationPath", "SHEDU_PREDECESSOR_LIFECYCLE_ATTESTATION_FILE"],
+    ["lifecycleAuthorityId", "SHEDU_LIFECYCLE_AUTHORITY_ID"]
+  ];
+  for (const [keyName, envName] of lifecycleEnv) {
+    const value = parsedOverrides.overrides[keyName] ?? process.env[envName];
+    if (value) workerEnv[envName] = value;
+  }
 
   const supervised = evaluateSupervised({
     repoDir: flags.get("--repo"),
@@ -407,6 +439,11 @@ export function main(argv = process.argv.slice(2)) {
   if (argv[0] === "inspect-evidence") return runInspectEvidence(argv.slice(1));
   if (argv[0] === "verify-receipt") return runVerifyReceipt(argv.slice(1));
   if (argv[0] === "conformance") return runConformanceCommand(argv.slice(1));
+  if (argv.length === 1 && argv[0] === "execution-preflight") {
+    const result = executionPreflight();
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return result.presets.some((preset) => preset.available) ? 0 : 2;
+  }
 
   process.stderr.write(`${JSON.stringify({
     schemaVersion: "promotion-kernel-error@1",

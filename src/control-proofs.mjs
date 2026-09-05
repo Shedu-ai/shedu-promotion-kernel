@@ -8,10 +8,15 @@ import { createEvidenceIndex } from "./evidence.mjs";
 import { reduceDisposition, isReducerDisposition } from "./reducer.mjs";
 import { runOrphanCensus } from "./census.mjs";
 import { runTargetCommand } from "./runner.mjs";
-import { isolateExecution } from "./sandbox.mjs";
+import {
+  isolateExecution,
+  LINUX_BOUNDED_CHILD_PROBE_SCRIPT,
+  LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT
+} from "./sandbox.mjs";
 import { kernelToolchain, ToolchainError, KERNEL_NODE_PATH } from "./toolchain.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
-import { computeAdmission, isAdmitted, deriveConformancePassed } from "./admission.mjs";
+import { computeAdmission, isAdmitted, isPilotEligible, deriveConformancePassed } from "./admission.mjs";
+import { verifyLifecycleEvidence } from "./lifecycle.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 import { signReceipt, generateSigningKeyPem } from "./receipt.mjs";
 import { verifyActivationPair } from "./activation.mjs";
@@ -20,6 +25,7 @@ import { commandsForPhase } from "./validators/validation-plan.mjs";
 import { runArchitectureFence } from "./architecture-fence.mjs";
 import { evaluateSupervised } from "./supervisor.mjs";
 import { git as gitAuthority, gitAuthorityIdentity } from "./git-authority.mjs";
+import { EXECUTION_PRESETS } from "./execution-policy.mjs";
 
 // Executable RUNTIME proofs, one per control. Each proof actually exercises
 // the control's enforcement (spawning a sandboxed command, running the
@@ -80,7 +86,53 @@ export const CONTROL_PROOFS = {
   },
   "sandbox-process-ceiling": () => {
     const r = sandboxedNode('const r=require("node:child_process").spawnSync(process.execPath,["-e","0"]);console.log(r.error?r.error.code:"FORKED");process.exit(r.error?0:1)');
-    return { passed: r.status === 0 && !/FORKED/.test(r.stdout), detail: r.stdout?.trim() };
+    const strictPassed = r.status === 0 && !/FORKED/.test(r.stdout);
+    if (process.platform !== "linux") {
+      return { passed: strictPassed, detail: "strict fork denial" };
+    }
+    const positive = runTargetCommand({
+      commandId: "bounded-positive",
+      phase: "CANDIDATE_VALIDATION",
+      argv: ["node", "-e", LINUX_BOUNDED_CHILD_PROBE_SCRIPT],
+      cwd: process.cwd(),
+      timeoutMs: 30000,
+      maxOutputBytes: 1024 * 1024,
+      executionRequirement: EXECUTION_PRESETS.STANDARD_TEST,
+      readRoots: []
+    });
+    const pressure = runTargetCommand({
+      commandId: "bounded-pressure",
+      phase: "CANDIDATE_VALIDATION",
+      argv: ["node", "-e", LINUX_BOUNDED_PRESSURE_PROBE_SCRIPT],
+      cwd: process.cwd(),
+      timeoutMs: 30000,
+      maxOutputBytes: 1024 * 1024,
+      executionRequirement: { class: "BOUNDED_PROCESS_TREE", maxTasks: 65 },
+      readRoots: []
+    });
+    return {
+      passed: strictPassed && positive.succeeded && pressure.taskBudgetExceeded && !pressure.succeeded,
+      detail: {
+        strict: {
+          status: r.status ?? null,
+          signal: r.signal ?? null,
+          stdout: String(r.stdout ?? "").slice(0, 256),
+          stderr: String(r.stderr ?? "").slice(0, 256)
+        },
+        boundedPositive: {
+          succeeded: positive.succeeded,
+          spawnFailed: positive.spawnFailed,
+          taskBudgetExceeded: positive.taskBudgetExceeded,
+          execution: positive.report?.execution ?? null
+        },
+        boundedOverflow: {
+          succeeded: pressure.succeeded,
+          spawnFailed: pressure.spawnFailed,
+          taskBudgetExceeded: pressure.taskBudgetExceeded,
+          execution: pressure.report?.execution ?? null
+        }
+      }
+    };
   },
   "command-output-ceiling": () => {
     const e = runTargetCommand({ commandId: "p", phase: "CANDIDATE_VALIDATION", argv: ["node", "-e", "process.stdout.write('x'.repeat(100000))"], cwd: process.cwd(), timeoutMs: 15000, maxOutputBytes: 1024, maxProcesses: 1, readRoots: [] });
@@ -159,6 +211,14 @@ export const CONTROL_PROOFS = {
     const empty = computeAdmission({ statusBytes: null });
     const contradictory = deriveConformancePassed({ allPassed: true, cases: [{ conforming: { disposition: "BLOCKED", receiptVerified: false }, planted: { disposition: "BLOCKED", receiptVerified: true } }], kernelActivation: [{ proven: false }] });
     return { passed: !isAdmitted(forged) && !isAdmitted(empty) && contradictory.passed === false, detail: "admission gate" };
+  },
+  "lifecycle-status-admission": () => {
+    const forged = { [`admit${"ted"}`]: true, [`stat${"us"}`]: `PILOT_ELIG${"IBLE"}` };
+    const missing = verifyLifecycleEvidence({});
+    return {
+      passed: !isPilotEligible(forged) && missing.ok === false && !Object.hasOwn(missing, "status"),
+      detail: "higher lifecycle state requires complete signed external evidence"
+    };
   },
   "architecture-fence": () => {
     const r = runArchitectureFence(new URL(".", import.meta.url).pathname);

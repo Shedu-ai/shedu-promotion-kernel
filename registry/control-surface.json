@@ -37,6 +37,13 @@
       "productionObservable": false
     },
     {
+      "id": "lifecycle-status-admission",
+      "kind": "admission",
+      "definedIn": "src/admission.mjs",
+      "dispositionEffect": true,
+      "productionObservable": false
+    },
+    {
       "id": "containment-halt-routing",
       "kind": "routing",
       "definedIn": "src/evaluate.mjs",

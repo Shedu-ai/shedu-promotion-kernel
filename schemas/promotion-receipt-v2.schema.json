@@ -1,0 +1,505 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shedu-ai/shedu-promotion-kernel/main/schemas/promotion-receipt-v2.schema.json",
+  "title": "promotion-receipt@2",
+  "description": "Final verifiable disposition bound to every input digest, every check result, and changed-file attribution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kernelRelease",
+    "repositoryId",
+    "baseCommit",
+    "candidate",
+    "artifactRoot",
+    "digests",
+    "checkResults",
+    "changedFiles",
+    "controlTrace",
+    "startedAt",
+    "completedAt",
+    "disposition",
+    "reasonCodes",
+    "signing",
+    "executionReports"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "promotion-receipt@2"
+    },
+    "kernelRelease": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repositoryId": {
+      "$ref": "#/$defs/kebabId"
+    },
+    "baseCommit": {
+      "$ref": "#/$defs/commitId"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "COMMIT",
+            "TREE"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/commitId"
+        }
+      }
+    },
+    "artifactRoot": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workContract",
+        "profile",
+        "packs",
+        "validators",
+        "compiledPlan",
+        "capabilityIndex",
+        "evidenceIndex"
+      ],
+      "properties": {
+        "workContract": {
+          "$ref": "#/$defs/digest"
+        },
+        "profile": {
+          "$ref": "#/$defs/digest"
+        },
+        "packs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "packId",
+              "version",
+              "digest"
+            ],
+            "properties": {
+              "packId": {
+                "$ref": "#/$defs/kebabId"
+              },
+              "version": {
+                "$ref": "#/$defs/semver"
+              },
+              "digest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        },
+        "validators": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "validatorId",
+              "digest"
+            ],
+            "properties": {
+              "validatorId": {
+                "$ref": "#/$defs/validatorId"
+              },
+              "digest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        },
+        "compiledPlan": {
+          "$ref": "#/$defs/digest"
+        },
+        "capabilityIndex": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "evidenceIndex": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        }
+      }
+    },
+    "checkResults": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/checkResult"
+      }
+    },
+    "changedFiles": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "changeKind",
+          "scopeClass"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/relativePath"
+          },
+          "changeKind": {
+            "enum": [
+              "ADDED",
+              "MODIFIED",
+              "DELETED",
+              "RENAMED"
+            ]
+          },
+          "scopeClass": {
+            "enum": [
+              "ALLOWED",
+              "READONLY",
+              "FORBIDDEN",
+              "UNCLASSIFIED"
+            ]
+          }
+        }
+      }
+    },
+    "controlTrace": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "controlId",
+          "invocation",
+          "outcome",
+          "dispositionEffect",
+          "consumer",
+          "planDigest",
+          "candidateId",
+          "evidenceIndexDigest"
+        ],
+        "properties": {
+          "controlId": {
+            "$ref": "#/$defs/kebabId"
+          },
+          "invocation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "outcome": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "dispositionEffect": {
+            "type": "boolean"
+          },
+          "consumer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "planDigest": {
+            "$ref": "#/$defs/digest"
+          },
+          "candidateId": {
+            "$ref": "#/$defs/commitId"
+          },
+          "evidenceIndexDigest": {
+            "$ref": "#/$defs/digest"
+          }
+        }
+      }
+    },
+    "startedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "completedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "disposition": {
+      "enum": [
+        "PROMOTABLE",
+        "BLOCKED"
+      ]
+    },
+    "reasonCodes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$",
+        "maxLength": 64
+      }
+    },
+    "signing": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "publicKey",
+            "signature"
+          ],
+          "properties": {
+            "algorithm": {
+              "const": "ed25519"
+            },
+            "publicKey": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "signature": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{128}$"
+            }
+          }
+        }
+      ]
+    },
+    "executionReports": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commandId",
+          "report"
+        ],
+        "properties": {
+          "commandId": {
+            "$ref": "#/$defs/kebabId"
+          },
+          "report": {
+            "$ref": "#/$defs/executionReport"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 128
+    },
+    "versionedId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*$",
+      "maxLength": 128
+    },
+    "validatorId": {
+      "type": "string",
+      "pattern": "^([a-z0-9]+(-[a-z0-9]+)*@[1-9][0-9]*|target:sha256:[0-9a-f]{64})$",
+      "maxLength": 128
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "commitId": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._/-]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "checkResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "checkId",
+        "packId",
+        "planDigest",
+        "candidateId",
+        "effect",
+        "outcome",
+        "reasonCodes",
+        "evidence",
+        "startedAt",
+        "completedAt"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "check-result@1"
+        },
+        "checkId": {
+          "$ref": "#/$defs/kebabId"
+        },
+        "packId": {
+          "$ref": "#/$defs/kebabId"
+        },
+        "planDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/commitId"
+        },
+        "effect": {
+          "enum": [
+            "BLOCKING",
+            "ADVISORY"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "PASS",
+            "FIRED",
+            "INFRA_FAILURE",
+            "SKIPPED"
+          ]
+        },
+        "reasonCodes": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "maxLength": 64
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifactId",
+              "digest"
+            ],
+            "properties": {
+              "artifactId": {
+                "$ref": "#/$defs/kebabId"
+              },
+              "digest": {
+                "$ref": "#/$defs/digest"
+              }
+            }
+          }
+        },
+        "startedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "executionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "maxTasks",
+        "capabilityId",
+        "portableAuthorityDigest",
+        "backend",
+        "backendAuthorityDigest",
+        "limitFired",
+        "limitEvents"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "SINGLE_PROCESS",
+            "BOUNDED_PROCESS_TREE"
+          ]
+        },
+        "maxTasks": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 512
+        },
+        "capabilityId": {
+          "enum": [
+            "single-process@1",
+            "bounded-process-tree@1"
+          ]
+        },
+        "portableAuthorityDigest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "backend": {
+          "enum": [
+            "darwin-sandbox-exec",
+            "linux-oci"
+          ]
+        },
+        "backendAuthorityDigest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/digest"
+            }
+          ]
+        },
+        "limitFired": {
+          "type": "boolean"
+        },
+        "limitEvents": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

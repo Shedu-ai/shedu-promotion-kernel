@@ -8,8 +8,14 @@ import { canonicalize, digestOfCanonical } from "./canonical-json.mjs";
 import { readBoundedRegularFile, hashBoundedRegularFile } from "./bounded-file.mjs";
 import { validateDocument } from "./contracts.mjs";
 import { validateAgentProjection } from "./agent-contracts.mjs";
-import { isAdmitted } from "./admission.mjs";
-import { actionsForAdmission, actionsForEvaluation } from "./next-actions.mjs";
+import {
+  admittedKernelIdentity,
+  admittedLifecycleEvidence,
+  admittedLifecycleStatus,
+  isAdmitted,
+  lifecycleFailureCode
+} from "./admission.mjs";
+import { actionsForEvaluation, actionsForLifecycle } from "./next-actions.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 
 const MAX_CONTRACT_BYTES = 1_048_576;
@@ -40,16 +46,28 @@ function validatedProjection(kind, value) {
 
 export function projectAgentStatus({ admission, probe, kernelRelease }) {
   const admitted = isAdmitted(admission);
+  const implementationStatus = admittedLifecycleStatus(admission);
+  const identity = admittedKernelIdentity(admission);
+  const lifecycleEvidence = admittedLifecycleEvidence(admission);
+  const lifecycleFailure = lifecycleFailureCode(admission);
   const status = {
-    schemaVersion: "kernel-agent-status@1",
+    schemaVersion: "kernel-agent-status@2",
+    subject: "shedu-promotion-kernel",
     kernelRelease,
-    implementationStatus: probe.implementationStatus,
+    kernelCommit: identity.kernelCommit,
+    kernelTree: identity.kernelTree,
+    implementationStatus,
     promotionEntrypointAvailable: probe.promotionEntrypointAvailable,
     capabilities: [...probe.capabilities].sort(),
     admissionReasonCodes: admitted ? [] : ["NOT_ADMITTED"],
-    nextActions: actionsForAdmission(admitted)
+    lifecycleReasonCodes: lifecycleFailure === null ? [] : [lifecycleFailure],
+    lifecycleEvidence,
+    nextActions: actionsForLifecycle(implementationStatus, {
+      lifecycleEvidencePresent: lifecycleEvidence !== null || lifecycleFailure !== null,
+      failureCode: lifecycleFailure
+    })
   };
-  return validatedProjection("kernel-agent-status@1", status);
+  return validatedProjection("kernel-agent-status@2", status);
 }
 
 function statIdentity(stat) {
