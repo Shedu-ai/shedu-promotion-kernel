@@ -76,6 +76,8 @@ function pilotFixture() {
     argv: check.argv,
     outcome: check.expectedOutcome,
     exitCode: 0,
+    durationMilliseconds: 1,
+    outputBytes: 1,
     evidenceDigest: `sha256:${String(index + 3).repeat(64)}`
   }));
   const input = {
@@ -163,6 +165,27 @@ test("zero-provider qualification is byte-identical and exact-argv bound", () =>
   const rejected = compilePilotQualification({ policyBytes: one.policyBytes, inputBytes: Buffer.from(canonicalize(changed), "utf8") });
   assert.equal(rejected.ok, false);
   assert.ok(rejected.receipt.reasonCodes.includes("QUALIFICATION_RESULT_UNEXPECTED"));
+});
+
+test("qualification closes evidence identity, ordering, and every declared ceiling", () => {
+  for (const mutate of [
+    (policy, input) => { input.privateEvidenceManifest[0].digest = `sha256:${"f".repeat(64)}`; },
+    (policy, input) => { input.results[0].durationMilliseconds = policy.ceilings.maxRuntimeSeconds * 1000 + 1; },
+    (policy, input) => { input.results[0].outputBytes = policy.ceilings.maxOutputBytes + 1; },
+    (policy, input) => { input.privateEvidenceManifest[0].byteLength = policy.ceilings.maxArtifactBytes + 1; },
+    (policy) => { policy.ceilings.maxTasks = 1; }
+  ]) {
+    const fixture = pilotFixture();
+    const policy = JSON.parse(fixture.policyBytes);
+    const input = JSON.parse(fixture.inputBytes);
+    mutate(policy, input);
+    input.policyDigest = digestOfCanonical(policy);
+    const result = compilePilotQualification({
+      policyBytes: Buffer.from(canonicalize(policy), "utf8"),
+      inputBytes: Buffer.from(canonicalize(input), "utf8")
+    });
+    assert.equal(result.ok, false);
+  }
 });
 
 test("a signed exact qualification elevates only the branded admission to PILOT_ELIGIBLE", () => {

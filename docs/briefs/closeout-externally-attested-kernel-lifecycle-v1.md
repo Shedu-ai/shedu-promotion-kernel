@@ -23,17 +23,22 @@
   validity, closed reason codes, and closed next-action lanes.
 - The lifecycle admission control is present in source discovery, the control
   registry, executable runtime proof, conformance census, and status digest.
+- Qualification results and retained evidence are one-to-one by check identity
+  and digest; duplicate, missing, extra, or reordered identities fail closed.
+  Runtime, output, artifact, and task ceilings are all consumed by the same
+  deterministic compiler rather than retained as unused policy fields.
 
 ## Evidence
 
-- Full kernel suite: 276 tests, 276 passed, 0 failed.
+- Full kernel suite: 277 tests, 277 passed, 0 failed.
 - Conformance status: byte-identical after deterministic regeneration for
   `@shedu/promotion-kernel@0.6.0-experimental`.
 - Control census: 22 registered, 22 proven, 14 production-required, 14
   production-observed, zero findings.
 - Hostile coverage includes forged branded states, wrong key/authority,
   mutation, expiry, identity substitution, exact-argv drift, missing results,
-  evidence relabeling, and v2 activation-member mutation.
+  evidence/result laundering, ceiling bypass, evidence relabeling, and v2
+  activation-member mutation.
 
 ## Honest boundary
 

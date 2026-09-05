@@ -49,6 +49,19 @@ export function compilePilotQualification({ policyBytes, inputBytes }) {
 
   const required = new Map(policy.requiredChecks.map((check) => [check.checkId, check]));
   const observed = new Map();
+  const artifacts = new Map();
+  const requiredIds = policy.requiredChecks.map((check) => check.checkId);
+  if (new Set(requiredIds).size !== requiredIds.length || !same(requiredIds, [...requiredIds].sort())) {
+    reasons.push("QUALIFICATION_POLICY_INVALID");
+  }
+  const resultIds = input.results.map((result) => result.checkId);
+  if (!same(resultIds, [...resultIds].sort())) reasons.push("QUALIFICATION_INPUT_INVALID");
+  for (const artifact of input.privateEvidenceManifest) {
+    if (artifacts.has(artifact.artifactId)) reasons.push("QUALIFICATION_EVIDENCE_INVALID");
+    artifacts.set(artifact.artifactId, artifact);
+  }
+  const artifactIds = input.privateEvidenceManifest.map((artifact) => artifact.artifactId);
+  if (!same(artifactIds, [...artifactIds].sort())) reasons.push("QUALIFICATION_EVIDENCE_INVALID");
   for (const result of input.results) {
     if (observed.has(result.checkId)) reasons.push("QUALIFICATION_RESULT_DUPLICATE");
     observed.set(result.checkId, result);
@@ -61,9 +74,25 @@ export function compilePilotQualification({ policyBytes, inputBytes }) {
       reasons.push("QUALIFICATION_RESULT_UNEXPECTED");
     }
     if (result.outcome !== expected.expectedOutcome || result.exitCode !== 0) reasons.push("QUALIFICATION_RESULT_FAILED");
+    const artifact = artifacts.get(result.checkId);
+    if (artifact === undefined || artifact.digest !== result.evidenceDigest) {
+      reasons.push("QUALIFICATION_EVIDENCE_INVALID");
+    }
   }
   for (const id of required.keys()) if (!observed.has(id)) reasons.push("QUALIFICATION_RESULT_MISSING");
-  if (input.privateEvidenceManifest.length < policy.requiredChecks.length) reasons.push("QUALIFICATION_EVIDENCE_INVALID");
+  if (!same([...artifacts.keys()].sort(), [...required.keys()].sort())) reasons.push("QUALIFICATION_EVIDENCE_INVALID");
+  if (policy.requiredChecks.length > policy.ceilings.maxTasks || input.results.length > policy.ceilings.maxTasks) {
+    reasons.push("QUALIFICATION_INPUT_INVALID");
+  }
+  if (input.results.reduce((total, result) => total + result.durationMilliseconds, 0) > policy.ceilings.maxRuntimeSeconds * 1000) {
+    reasons.push("QUALIFICATION_INPUT_INVALID");
+  }
+  if (input.results.reduce((total, result) => total + result.outputBytes, 0) > policy.ceilings.maxOutputBytes) {
+    reasons.push("QUALIFICATION_INPUT_INVALID");
+  }
+  if (input.privateEvidenceManifest.reduce((total, artifact) => total + artifact.byteLength, 0) > policy.ceilings.maxArtifactBytes) {
+    reasons.push("QUALIFICATION_EVIDENCE_INVALID");
+  }
 
   const base = {
     schemaVersion: "kernel-pilot-qualification-receipt@1",
