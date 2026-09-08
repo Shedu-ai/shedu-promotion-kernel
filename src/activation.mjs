@@ -1,5 +1,4 @@
 import { canonicalize } from "./canonical-json.mjs";
-import { validateDocument } from "./contracts.mjs";
 import { planCheckValidatorId } from "./census.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 
@@ -152,10 +151,12 @@ export function verifyActivationPair({
     return { ok: false, errors, signed: false };
   }
 
-  const conforming = validateDocument("promotion-receipt@1", conformingReceiptBytes).value;
-  const planted = validateDocument("promotion-receipt@1", plantedReceiptBytes).value;
-  const conformingPlan = validateDocument("compiled-policy-plan@1", conformingPlanBytes).value;
-  const plantedPlan = validateDocument("compiled-policy-plan@1", plantedPlanBytes).value;
+  // The offline verifier already validates each receipt and its matching
+  // plan version. Consume those exact validated documents at this boundary.
+  const conforming = conformingVerdict.receipt;
+  const planted = plantedVerdict.receipt;
+  const conformingPlan = conformingVerdict.plan;
+  const plantedPlan = plantedVerdict.plan;
 
   // The pair must be the same control over the same repository: a conforming
   // receipt from one run cannot be paired with a planted receipt from an
