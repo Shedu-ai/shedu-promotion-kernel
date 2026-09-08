@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -5,13 +6,13 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { digestOfBytes } from "./canonical-json.mjs";
-import { validateDocument } from "./contracts.mjs";
+import { validateDocument, validateVersionedDocument } from "./contracts.mjs";
 
 // Control point: the hard whole-evaluation deadline supervisor with atomic
 // bundle publication.
 export const CONTROL_POINTS = Object.freeze(["evaluation-supervisor"]);
 
-const WORKER = new URL("./worker-evaluate.mjs", import.meta.url).pathname;
+const WORKER = fileURLToPath(new URL("./worker-evaluate.mjs", import.meta.url));
 const OPERATION_CLOCKS = new WeakMap();
 
 // Start the whole-operation clock before CLI prework without exposing a
@@ -192,9 +193,10 @@ export function evaluateSupervised({ repoDir, contractBytes, outDir, maxRuntimeS
     let receiptDocument;
     let contractDocument;
     try {
-      receiptDocument = validateDocument(
-        "promotion-receipt@1", readFileSync(join(versionDir, "receipt.json")));
-      contractDocument = validateDocument("work-contract@1", contractBytes);
+      contractDocument = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
+      const receiptKind = contractDocument.value?.schemaVersion === "work-contract@2"
+        ? "promotion-receipt@2" : "promotion-receipt@1";
+      receiptDocument = validateDocument(receiptKind, readFileSync(join(versionDir, "receipt.json")));
     } catch {
       return abort({ ok: false, supervised: true, reasonCode: "INFRASTRUCTURE_FAILURE", message: "worker receipt or supervised contract is unreadable", elapsedMs });
     }

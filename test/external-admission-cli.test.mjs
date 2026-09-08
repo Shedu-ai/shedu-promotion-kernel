@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
@@ -9,7 +10,7 @@ import { canonicalize, digestOfBytes } from "../src/canonical-json.mjs";
 import { attestationBody } from "../src/admission.mjs";
 import { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } from "./fixtures.mjs";
 
-const kernelRoot = new URL("..", import.meta.url).pathname;
+const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function git(...args) {
   const r = spawnSync("git", ["-C", kernelRoot, ...args], { encoding: "utf8", env: { PATH: process.env.PATH } });

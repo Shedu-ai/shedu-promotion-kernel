@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -10,7 +11,7 @@ import { attestationBody } from "../src/admission.mjs";
 import { validateAgainstSchema } from "../src/json-schema.mjs";
 import { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } from "./fixtures.mjs";
 
-const kernelRoot = new URL("..", import.meta.url).pathname;
+const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
 const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
 const template = JSON.parse(readFileSync(new URL("../schemas/harness-bench-subject-template.schema.json", import.meta.url), "utf8"));
 

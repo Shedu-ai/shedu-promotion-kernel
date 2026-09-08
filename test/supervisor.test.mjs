@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, writeFileSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
 import { generateKeyPairSync, sign as cryptoSign, createPublicKey } from "node:crypto";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -12,7 +12,7 @@ import { attestationBody } from "../src/admission.mjs";
 import { generateSigningKeyPem, verifyReceipt } from "../src/receipt.mjs";
 import { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } from "./fixtures.mjs";
 
-const kernelRoot = new URL("..", import.meta.url).pathname;
+const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
 const outDir = () => mkdtempSync(join(tmpdir(), "shedu-supervisor-"));
 
 // The supervised promotion path enforces admission UNCONDITIONALLY inside the

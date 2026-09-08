@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -221,7 +222,7 @@ export const CONTROL_PROOFS = {
     };
   },
   "architecture-fence": () => {
-    const r = runArchitectureFence(new URL(".", import.meta.url).pathname);
+    const r = runArchitectureFence(fileURLToPath(new URL(".", import.meta.url)));
     return { passed: r.ok === true, detail: r.violations };
   },
   "receipt-verification": () => {

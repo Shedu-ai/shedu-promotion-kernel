@@ -14,7 +14,7 @@ import { runTargetCommand } from "./runner.mjs";
 import { runtimeExecutionRequirement } from "./execution-policy.mjs";
 import { createDeadline } from "./deadline.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
-import { committishForCandidate, materializeWorktree } from "./workspace.mjs";
+import { committishForCandidate, materializeWorktree, gitRun } from "./workspace.mjs";
 import { verifyReceipt } from "./receipt.mjs";
 
 // Control points implemented in the evaluation orchestrator.
@@ -180,6 +180,18 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   if (!compiled.ok) return failure(compiled.errors[0].reasonCode, compiled.errors);
   const { plan, planDigest } = compiled;
 
+  // Reject unavailable or mistyped immutable objects before allocating any
+  // worktrees. A missing candidate is an input rejection, not a worker crash.
+  const candidate = workContract.target.candidate;
+  const candidateObject = gitRun(repoDir, ["cat-file", "-t", candidate.id]);
+  const expectedType = candidate.kind === "COMMIT" ? "commit" : "tree";
+  if (candidateObject.status !== 0 || candidateObject.stdout.trim() !== expectedType) {
+    return failure("AUTHORITY_OBJECT_MISSING", [{
+      reasonCode: "AUTHORITY_OBJECT_MISSING",
+      message: `candidate ${candidate.id} is not an available ${expectedType} object`
+    }]);
+  }
+
   mkdirSync(outDir, { recursive: true });
   // artifactRoot is mechanically load-bearing: evidence is written under it,
   // and the receipt records it. It is a contract-declared, path-contained
@@ -213,14 +225,27 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   let haltCode = null;
   let lastPhase = null;
 
-  const candidateCommittish = committishForCandidate(repoDir, workContract.target.candidate);
-  const baseWorktree = materializeWorktree(repoDir, baseCommit);
-  const candidateWorktree = materializeWorktree(repoDir, candidateCommittish);
+  let baseWorktree = null;
+  let candidateWorktree = null;
   // Canonical real paths so sandboxed commands never traverse a symlink the
   // sandbox does not grant, and so injected dir env vars point at grantable
   // paths.
-  const baseRealDir = realpathSync(baseWorktree.dir);
-  const candidateRealDir = realpathSync(candidateWorktree.dir);
+  let baseRealDir;
+  let candidateRealDir;
+  try {
+    const candidateCommittish = committishForCandidate(repoDir, candidate);
+    baseWorktree = materializeWorktree(repoDir, baseCommit);
+    candidateWorktree = materializeWorktree(repoDir, candidateCommittish);
+    baseRealDir = realpathSync(baseWorktree.dir);
+    candidateRealDir = realpathSync(candidateWorktree.dir);
+  } catch (error) {
+    candidateWorktree?.cleanup();
+    baseWorktree?.cleanup();
+    return failure("INFRASTRUCTURE_FAILURE", [{
+      reasonCode: "INFRASTRUCTURE_FAILURE",
+      message: `immutable workspace materialization failed: ${String(error)}`
+    }]);
+  }
   engage("git-authority", "PASS");
   try {
     for (const check of plan.checks) {

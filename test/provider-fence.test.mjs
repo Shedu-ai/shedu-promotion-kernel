@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ import test from "node:test";
 // tests: provider keys present in the host environment never reach a child,
 // and secret-named env names cannot be allowlisted at any layer.
 
-const SRC_ROOT = new URL("../src", import.meta.url).pathname;
+const SRC_ROOT = fileURLToPath(new URL("../src", import.meta.url));
 
 const FORBIDDEN_IMPORT_RE =
   /(from\s+|require\()["'](node:)?(https?|net|tls|dgram|dns|http2)["']|["']@anthropic|["']openai["']|["']undici["']|["']node-fetch["']|["']axios["']|import\(["']/;

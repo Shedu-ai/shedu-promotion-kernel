@@ -2,6 +2,7 @@
 
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { digestOfBytes } from "../src/canonical-json.mjs";
 
 export function authorityDigest(path) {
@@ -39,6 +40,14 @@ function main(argv) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isDirectInvocation() {
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectInvocation()) {
   process.exitCode = main(process.argv.slice(2));
 }
