@@ -121,8 +121,21 @@ function versionTwoPublication() {
   assert.equal(result.receipt.disposition, "PROMOTABLE");
   assert.equal(verifyReceipt({ receiptBytes: result.receiptBytes, planBytes: readFileSync(join(version, "plan.json")), evidenceDir: join(version, "artifacts/evidence") }).ok, true);
   symlinkSync(versionName, join(output, "current"));
-  return { output, version };
+  return { output, version, target, contractBytes: bytes };
 }
+
+test("the real supervisor publishes v2 receipts with a verified version-matched bundle", async () => {
+  const fixture = versionTwoPublication();
+  const { evaluateSupervised } = await import(pathToFileURL(join(copy, "src/supervisor.mjs")));
+  const outDir = join(parent, "supervised-v2");
+  const result = evaluateSupervised({ repoDir: fixture.target.repoDir, contractBytes: fixture.contractBytes, outDir, maxRuntimeSeconds: 40, workerEnv });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.disposition, "PROMOTABLE");
+  const receiptBytes = readFileSync(join(outDir, "current/receipt.json"));
+  assert.equal(JSON.parse(receiptBytes).schemaVersion, "promotion-receipt@2");
+  assert.equal(verifyReceipt({ receiptBytes, planBytes: readFileSync(join(outDir, "current/plan.json")), evidenceDir: join(outDir, "current/artifacts/evidence") }).ok, true);
+  assert.equal(projectPublishedEvaluation(outDir).disposition, "PROMOTABLE");
+});
 
 test("version 2 receipts remain consumable by the status and evidence interfaces", () => {
   const fixture = versionTwoPublication();
