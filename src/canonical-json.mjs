@@ -248,6 +248,22 @@ export function validateRelativePath(path, { allowDirPrefix = false } = {}) {
   if (typeof path !== "string" || path.length === 0) return bad("path must be a non-empty string");
   if (path.length > 512) return bad("path exceeds 512 characters");
   if (!PATH_CHARSET.test(path)) return bad("path contains characters outside [A-Za-z0-9._/-]");
+  return validatePathComponents(path, { allowDirPrefix });
+}
+
+// Repository names are data, separate from authority and artifact transport paths.
+// Preserve exact Unicode spelling; never decode percent escapes or normalize identity.
+export function validateRepositoryPath(path, { allowDirPrefix = false } = {}) {
+  const bad = (message) => ({ ok: false, reasonCode: "PATH_NOT_CONTAINED", message });
+  if (typeof path !== "string" || path.length === 0) return bad("path must be a non-empty string");
+  if (path.length > 512) return bad("path exceeds 512 characters");
+  if (Buffer.from(path, "utf8").toString("utf8") !== path) return bad("path is not well-formed Unicode");
+  if (/[\p{Cc}\p{Cf}\\:]/u.test(path)) return bad("repository path contains control, format, backslash or colon characters");
+  return validatePathComponents(path, { allowDirPrefix });
+}
+
+function validatePathComponents(path, { allowDirPrefix }) {
+  const bad = (message) => ({ ok: false, reasonCode: "PATH_NOT_CONTAINED", message });
   if (path.startsWith("/")) return bad("absolute paths are rejected");
   if (path.startsWith("-")) return bad("paths may not begin with a dash");
   let body = path;

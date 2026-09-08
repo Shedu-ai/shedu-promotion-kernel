@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { CanonicalJsonError, parseStrict, validateRelativePath } from "./canonical-json.mjs";
+import { CanonicalJsonError, parseStrict, validateRelativePath, validateRepositoryPath } from "./canonical-json.mjs";
 import { validateAgainstSchema } from "./json-schema.mjs";
 import { isReasonCode } from "./reason-codes.mjs";
 import { EXECUTION_PRESETS, executionCapabilityId, isExecutionRequirement } from "./execution-policy.mjs";
@@ -7,14 +7,17 @@ import { EXECUTION_PRESETS, executionCapabilityId, isExecutionRequirement } from
 const SCHEMA_FILES = {
   "work-contract@1": "work-contract.schema.json",
   "work-contract@2": "work-contract-v2.schema.json",
+  "work-contract@3": "work-contract-v3.schema.json",
   "policy-pack@1": "policy-pack.schema.json",
   "policy-pack@2": "policy-pack-v2.schema.json",
   "policy-profile@1": "policy-profile.schema.json",
   "policy-profile@2": "policy-profile-v2.schema.json",
   "compiled-policy-plan@1": "compiled-policy-plan.schema.json",
   "compiled-policy-plan@2": "compiled-policy-plan-v2.schema.json",
+  "compiled-policy-plan@3": "compiled-policy-plan-v3.schema.json",
   "promotion-receipt@1": "promotion-receipt.schema.json",
   "promotion-receipt@2": "promotion-receipt-v2.schema.json",
+  "promotion-receipt@3": "promotion-receipt-v3.schema.json",
   "capability-index@1": "capability-index.schema.json",
   "mechanism-registry@1": "mechanism-registry.schema.json",
   "check-result@1": "check-result.schema.json",
@@ -47,6 +50,23 @@ const schemas = new Map(
 );
 
 export const CONTRACT_KINDS = Object.freeze(Object.keys(SCHEMA_FILES));
+
+// One closed mapping owns version selection across producer and consumer boundaries.
+// Version 3 changes repository path representation; it retains v2 execution policy.
+const evaluationFormats = [1, 2, 3].map(version => Object.freeze({
+  contract: `work-contract@${version}`,
+  plan: `compiled-policy-plan@${version}`,
+  receipt: `promotion-receipt@${version}`,
+  profile: `policy-profile@${version === 1 ? 1 : 2}`,
+  pack: `policy-pack@${version === 1 ? 1 : 2}`,
+  bounded: version !== 1
+}));
+const formatsByDocument = new Map(evaluationFormats.flatMap(format =>
+  [format.contract, format.plan, format.receipt].map(kind => [kind, format])));
+export const WORK_CONTRACT_KINDS = Object.freeze(evaluationFormats.map(format => format.contract));
+export const RECEIPT_KINDS = Object.freeze(evaluationFormats.map(format => format.receipt));
+export function evaluationFormat(schemaVersion) { return formatsByDocument.get(schemaVersion) ?? null; }
+
 
 const err = (reasonCode, message, path) => (path ? { reasonCode, message, path } : { reasonCode, message });
 
@@ -157,7 +177,8 @@ function envAllowlistSecretErrors(names, location) {
 function pathErrors(paths, location, opts) {
   const out = [];
   for (const p of paths) {
-    const v = validateRelativePath(p, opts);
+    const validatePath = opts?.repository ? validateRepositoryPath : validateRelativePath;
+    const v = validatePath(p, opts);
     if (!v.ok) out.push(err("PATH_NOT_CONTAINED", `${location}: ${v.message}: ${JSON.stringify(p)}`));
   }
   return out;
@@ -215,7 +236,7 @@ const SEMANTIC = {
     const errors = [];
     const setNames = ["allowed", "readonly", "forbidden"];
     for (const name of setNames) {
-      errors.push(...pathErrors(doc.scope[name], `scope.${name}`, { allowDirPrefix: true }));
+      errors.push(...pathErrors(doc.scope[name], `scope.${name}`, { allowDirPrefix: true, repository: doc.schemaVersion === "work-contract@3" }));
     }
     const seen = new Map();
     for (const name of setNames) {
@@ -359,7 +380,7 @@ const SEMANTIC = {
   },
 
   "promotion-receipt@1": (doc) => {
-    const errors = pathErrors(doc.changedFiles.map((f) => f.path), "changedFiles.path");
+    const errors = pathErrors(doc.changedFiles.map((f) => f.path), "changedFiles.path", { repository: doc.schemaVersion === "promotion-receipt@3" });
     errors.push(...reasonCodeErrors(doc.reasonCodes, "reasonCodes"));
     for (const result of doc.checkResults) {
       errors.push(...reasonCodeErrors(result.reasonCodes, `checkResults[${result.checkId}].reasonCodes`));
@@ -597,6 +618,10 @@ SEMANTIC["promotion-receipt@2"] = (doc) => {
   }
   return errors;
 };
+
+SEMANTIC["work-contract@3"] = SEMANTIC["work-contract@2"];
+SEMANTIC["compiled-policy-plan@3"] = SEMANTIC["compiled-policy-plan@2"];
+SEMANTIC["promotion-receipt@3"] = SEMANTIC["promotion-receipt@2"];
 
 // Validate an already-parsed value against a contract kind: schema first,
 // then contract-specific semantic rules (containment, uniqueness, wiring).

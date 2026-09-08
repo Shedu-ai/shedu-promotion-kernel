@@ -1,0 +1,17 @@
+# Experiment 2: versioned consumers and portability
+
+Registered before any new case execution. The source subject is the exact repair tree `f36f08d193ce50e99ff219822e841225172e675e` from commit `1208c12aef95e03a6b3d6de8c287166b04cac626`; the merged commit will be recorded separately. The first experiment and its manifest are immutable.
+
+Primary question: do offline-valid activation receipt pairs remain usable across supported contract versions, with the same rejection of validator substitution, incorrect fingerprints, and missing required signatures? An operational version gap is an implementation failure even when both underlying receipts individually verify. No version restriction will be invented after observation to reinterpret a failure.
+
+Build fresh synthetic targets independently of repository test helpers. Each target has a base-owned blocking validator which reads a candidate marker. Freeze all Git objects, contracts, validator bytes and expected dispositions before execution. Use v1 STRICT, v2 SINGLE_PROCESS with maxTasks=64, and v2 BOUNDED_PROCESS_TREE with maxTasks=128. Each authority gets a conforming and planted candidate, repeated three times serially. The bounded variant must fail closed when Linux is unavailable. That is an infrastructure limitation, not evidence of successful bounded execution.
+
+For each usable pair, retain complete receipts and evidence, verify each via the documented offline CLI, and exercise activation verification with: genuine pair; wrong expected fingerprint; missing required signature; conforming receipt substituted for planted; invalid declared receipt version; different-validator planted substitution. Freeze mutation definitions before observing results. Inputs have stable machine identifiers and no customer data.
+
+Score the two distinct layers separately: candidate disposition versus its frozen executable authority, and consumer acceptance versus the frozen pair rules. A thrown exception is an implementation failure, never a policy rejection. Report false promotions, false blocks, infrastructure errors, verification errors, and ambiguous product semantics separately. Compare disposition, plan digest, evaluation digest and byte-level receipt digests separately. Do not infer global correctness or a performance benchmark from these small samples.
+
+Hosted CI for the preceding repair PR provides a clean macOS and digest-pinned Linux regression track at the same source tree. Its test results must be labeled regression evidence; they are not execution of this new independent corpus. Local native execution and concurrent CI are not a controlled performance comparison. The full suite must pass before the preceding repair merge; any CI failure is retained and investigated.
+
+The independent oracle / blinded Astra arm is pending the user's explicit delegation choice. Until fresh blinded sessions actually run, this consumer experiment is a source-aware Astra experiment, not a blinded comparison. No absent assessment, backend, or run is counted as passed. User GitHub authentication is used only to perform the authorized merge and obtain CI status; experiment subprocesses receive an explicit credential-free environment.
+
+After baseline outcomes and their manifest are frozen, add failing hostile regressions before each accepted repair. Preserve all existing controls, run relevant negative cases and the two-way census, and repeat the corpus and full suite. Next-experiment repairs remain separate from the authorized first-experiment merge.

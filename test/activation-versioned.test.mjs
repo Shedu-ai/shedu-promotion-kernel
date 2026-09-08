@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before } from "node:test";
 import { evaluateCandidate } from "../src/evaluate.mjs";
-import { verifyReceipt } from "../src/receipt.mjs";
+import { verifyReceipt, generateSigningKeyPem, signReceipt } from "../src/receipt.mjs";
 import { verifyActivationPair } from "../src/activation.mjs";
 import { buildTargetRepo, commitAll, contractBytesOf, writeRepoFile } from "./fixtures.mjs";
 
 const execution = { class: "SINGLE_PROCESS", maxTasks: 64 };
-function pair(variant = "") {
+function pair(variant = "", version = 2) {
   const pack = {
     schemaVersion: "policy-pack@2", packId: "versioned-gate", version: "1.0.0",
     description: "versioned activation regression", phases: ["CANDIDATE_VALIDATION"], dependencies: [],
@@ -28,7 +28,7 @@ function pair(variant = "") {
     argv: ["node", "--input-type=module", "-e", 'import assert from "node:assert/strict"; import {feature} from "./src/feature.mjs"; assert.equal(feature,2);']
   }] });
   const evaluate = candidate => {
-    const contract = target.contractFor(candidate, { schemaVersion: "work-contract@2", resourceCeilings: { maxOutputBytes: 65536, maxArtifactBytes: 2097152, executionCeiling: execution } });
+    const contract = target.contractFor(candidate, { schemaVersion: `work-contract@${version}`, resourceCeilings: { maxOutputBytes: 65536, maxArtifactBytes: 2097152, executionCeiling: execution } });
     const output = mkdtempSync(join(tmpdir(), "shedu-versioned-activation-"));
     const result = evaluateCandidate({ repoDir: target.repoDir, contractBytes: contractBytesOf(contract), outDir: output });
     assert.equal(result.ok, true, JSON.stringify(result));
@@ -37,7 +37,8 @@ function pair(variant = "") {
     return { receiptBytes: result.receiptBytes, planBytes, disposition: result.receipt.disposition };
   };
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
-  const conforming = evaluate(commitAll(target.repoDir, "conforming version 2 candidate"));
+  if (version === 3) writeRepoFile(target.repoDir, "src/signed exact café.mjs", "export const value = 1;\n");
+  const conforming = evaluate(commitAll(target.repoDir, "conforming versioned candidate"));
   writeRepoFile(target.repoDir, "src/gate.marker", "planted\n");
   const planted = evaluate(commitAll(target.repoDir, "planted version 2 candidate"));
   assert.equal(conforming.disposition, "PROMOTABLE");
@@ -72,4 +73,17 @@ test("version 2 activation rejects a substituted declared receipt version", () =
   const changed = JSON.parse(genuine.plantedReceiptBytes);
   changed.schemaVersion = "promotion-receipt@1";
   assert.equal(verifyActivationPair({ ...genuine, plantedReceiptBytes: Buffer.from(JSON.stringify(changed)) }).ok, false);
+});
+
+
+test("version 3 activation consumes signed exact-name receipts and retains trust and version checks", () => {
+  const input = pair("", 3);
+  const key = generateSigningKeyPem();
+  const conforming = signReceipt(JSON.parse(input.conformingReceiptBytes), key);
+  const planted = signReceipt(JSON.parse(input.plantedReceiptBytes), key);
+  const signed = { ...input, conformingReceiptBytes: Buffer.from(JSON.stringify(conforming)), plantedReceiptBytes: Buffer.from(JSON.stringify(planted)), trustPolicy: { requireSignature: true, trustedPublicKeys: [conforming.signing.publicKey] } };
+  assert.equal(verifyActivationPair(signed).ok, true);
+  assert.equal(verifyActivationPair({ ...signed, trustPolicy: { requireSignature: true, trustedPublicKeys: [] } }).ok, false);
+  const substituted = { ...planted, schemaVersion: "promotion-receipt@2" };
+  assert.equal(verifyActivationPair({ ...signed, plantedReceiptBytes: Buffer.from(JSON.stringify(substituted)) }).ok, false);
 });

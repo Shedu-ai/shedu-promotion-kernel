@@ -6,7 +6,7 @@ import {
   verify as cryptoVerify
 } from "node:crypto";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument, validateVersionedDocument } from "./contracts.mjs";
+import { validateDocument, validateVersionedDocument, RECEIPT_KINDS, evaluationFormat } from "./contracts.mjs";
 import { reduceDisposition } from "./reducer.mjs";
 import { verifyEvidenceDir } from "./evidence.mjs";
 import { portableLinuxExecutionAuthority } from "./oci-runtime.mjs";
@@ -76,18 +76,16 @@ export function verifyReceipt({
   const errors = [];
   const fail = (reasonCode, message) => errors.push({ reasonCode, message });
 
-  const receiptDoc = validateVersionedDocument(["promotion-receipt@1", "promotion-receipt@2"], receiptBytes);
+  const receiptDoc = validateVersionedDocument(RECEIPT_KINDS, receiptBytes);
   if (!receiptDoc.ok) return { ok: false, errors: receiptDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
-  const expectedPlanKind = receiptDoc.value.schemaVersion === "promotion-receipt@2"
-    ? "compiled-policy-plan@2"
-    : "compiled-policy-plan@1";
+  const expectedPlanKind = evaluationFormat(receiptDoc.value.schemaVersion).plan;
   const planDoc = validateDocument(expectedPlanKind, planBytes);
   if (!planDoc.ok) return { ok: false, errors: planDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
   const receipt = receiptDoc.value;
   const plan = planDoc.value;
   const planDigest = digestOfCanonical(plan);
 
-  if (receipt.schemaVersion === "promotion-receipt@2") {
+  if (evaluationFormat(receipt.schemaVersion).bounded) {
     const expected = new Map();
     for (const command of plan.validationCommands) {
       expected.set(command.commandId, { execution: command.execution, ownerCheckId: null, phase: command.phase });

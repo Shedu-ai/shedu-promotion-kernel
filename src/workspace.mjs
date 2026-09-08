@@ -70,15 +70,24 @@ export function isAncestor(repoDir, ancestor, descendant) {
   return r.status === 0;
 }
 
+function decodeGitPaths(bytes) {
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch {
+    const error = new Error("Git filename transport is not valid UTF-8");
+    error.reasonCode = "PATH_NOT_CONTAINED";
+    throw error;
+  }
+}
+
 const CHANGE_KINDS = { A: "ADDED", M: "MODIFIED", D: "DELETED", T: "MODIFIED", R: "RENAMED" };
 
 // Changed paths between base and candidate, mechanically attributed. Renames
 // are disabled so an old path deletion and new path addition are each
 // classified against the scope sets on their own.
 export function changedFilesBetween(repoDir, base, candidateCommittish) {
-  const r = gitRun(repoDir, ["diff", "--name-status", "--no-renames", "-z", base, candidateCommittish]);
+  const r = gitRun(repoDir, ["diff", "--name-status", "--no-renames", "-z", base, candidateCommittish], { binary: true });
   if (r.status !== 0) throw new Error(`git diff failed: ${r.stderr}`);
-  const parts = r.stdout.split("\0").filter((p) => p.length > 0);
+  const parts = decodeGitPaths(r.stdout).split("\0").filter((p) => p.length > 0);
   const changes = [];
   for (let i = 0; i + 1 < parts.length; i += 2) {
     const kind = CHANGE_KINDS[parts[i][0]];
@@ -91,9 +100,9 @@ export function changedFilesBetween(repoDir, base, candidateCommittish) {
 // Full candidate tree listing with modes, for case-collision and symlink
 // analysis: [{mode, type, oid, path}].
 export function listTree(repoDir, committishOrTree) {
-  const r = gitRun(repoDir, ["ls-tree", "-r", "-z", committishOrTree]);
+  const r = gitRun(repoDir, ["ls-tree", "-r", "-z", committishOrTree], { binary: true });
   if (r.status !== 0) throw new Error(`git ls-tree failed: ${r.stderr}`);
-  return r.stdout
+  return decodeGitPaths(r.stdout)
     .split("\0")
     .filter(Boolean)
     .map((entry) => {

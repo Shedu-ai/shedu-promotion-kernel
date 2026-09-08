@@ -70,7 +70,7 @@ export function scopeBoundaryClassify(context) {
   const tree = listTree(repoDir, committish);
   const byFolded = new Map();
   for (const entry of tree) {
-    const folded = entry.path.toLowerCase();
+    const folded = entry.path.normalize("NFC").toLowerCase();
     if (byFolded.has(folded) && byFolded.get(folded) !== entry.path) {
       reasonCodes.add("SCOPE_CASE_COLLISION");
     }

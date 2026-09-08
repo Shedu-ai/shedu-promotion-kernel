@@ -100,7 +100,7 @@ test("a failed candidate checkout releases the already-created base worktree", (
   assert.equal(git(target.repoDir, "worktree", "list", "--porcelain"), before);
 });
 
-function versionTwoPublication() {
+function versionTwoPublication(formatVersion = 2) {
   const requirement = { class: "SINGLE_PROCESS", maxTasks: 64 };
   const pack = defaultTeamPack();
   pack.schemaVersion = "policy-pack@2";
@@ -108,8 +108,9 @@ function versionTwoPublication() {
   const commands = [{ commandId: "v2-proof", phase: "CANDIDATE_VALIDATION", argv: ["node", "-e", "process.stdout.write('v2-visible')"], executionRequirement: requirement }];
   const target = buildTargetRepo({ targetPacks: [pack], profileOverrides: { schemaVersion: "policy-profile@2", executionPolicy: requirement }, validationCommands: commands });
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
-  const candidate = commitAll(target.repoDir, "v2 candidate");
-  const contract = target.contractFor(candidate, { schemaVersion: "work-contract@2", resourceCeilings: { maxOutputBytes: 65536, maxArtifactBytes: 2097152, executionCeiling: requirement } });
+  if (formatVersion === 3) writeRepoFile(target.repoDir, "src/a valid café %23.mjs", "export const value = 1;\n");
+  const candidate = commitAll(target.repoDir, "versioned candidate");
+  const contract = target.contractFor(candidate, { schemaVersion: `work-contract@${formatVersion}`, resourceCeilings: { maxOutputBytes: 65536, maxArtifactBytes: 2097152, executionCeiling: requirement } });
   const output = mkdtempSync(join(parent, "v2-publication-"));
   const versionName = ".v-1-" + "0".repeat(32);
   const version = join(output, versionName);
@@ -156,4 +157,21 @@ test("version-aware projection still rejects a receipt whose declared version wa
   receipt.schemaVersion = "promotion-receipt@1";
   writeFileSync(path, canonicalize(receipt));
   assert.throws(() => projectPublishedEvaluation(fixture.output), error => error.reasonCode === "SCHEMA_VIOLATION");
+});
+
+
+test("the real supervisor publishes v3 exact filename identities through the worker and consumers", async () => {
+  const fixture = versionTwoPublication(3);
+  const { evaluateSupervised } = await import(pathToFileURL(join(copy, "src/supervisor.mjs")));
+  const outDir = join(parent, "supervised-v3");
+  const result = evaluateSupervised({ repoDir: fixture.target.repoDir, contractBytes: fixture.contractBytes, outDir, maxRuntimeSeconds: 40, workerEnv });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.disposition, "PROMOTABLE");
+  const receiptBytes = readFileSync(join(outDir, "current/receipt.json"));
+  const receipt = JSON.parse(receiptBytes);
+  assert.equal(receipt.schemaVersion, "promotion-receipt@3");
+  assert.ok(receipt.changedFiles.some(x => x.path === "src/a valid café %23.mjs"));
+  assert.equal(verifyReceipt({ receiptBytes, planBytes: readFileSync(join(outDir, "current/plan.json")), evidenceDir: join(outDir, "current/artifacts/evidence") }).ok, true);
+  assert.equal(projectPublishedEvaluation(outDir).disposition, "PROMOTABLE");
+  assert.equal(inspectPublishedEvidence(outDir, "command-stdout-v2-proof", 256).verification, "VERIFIED");
 });

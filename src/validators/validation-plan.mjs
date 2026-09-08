@@ -1,3 +1,4 @@
+import { evaluationFormat } from "../contracts.mjs";
 import { canonicalize } from "../canonical-json.mjs";
 import { runTargetCommand } from "../runner.mjs";
 import { runtimeExecutionRequirement } from "../execution-policy.mjs";
@@ -27,7 +28,7 @@ export function validationPlanExecute(context) {
     return { outcome: "INFRA_FAILURE", reasonCodes: ["INFRASTRUCTURE_FAILURE"], details: { failure: "no candidate workspace" } };
   }
 
-  const declaredCommands = plan.schemaVersion === "compiled-policy-plan@2"
+  const declaredCommands = evaluationFormat(plan.schemaVersion)?.bounded
     ? plan.validationCommands
     : workContract.validationCommands;
   const phaseCommands = commandsForPhase(declaredCommands, check.phase);

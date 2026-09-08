@@ -1,0 +1,32 @@
+{
+  "sourceExperiment": "experiment-2026-09-08-next",
+  "blinded": false,
+  "files": {
+    "frozen-inputs/astra-decisions.json": "sha256:5478c6cc72abf705888b435aafd4d471e12f33a2d99eaea287307875c9e8974b",
+    "frozen-inputs/cases.json": "sha256:347eb215c5d2a6f228838076b128a83f8695d930cea3a3627142259f451cf839",
+    "frozen-inputs/v1-strict-drift/conforming-contract.json": "sha256:00df7ae19327760da6ddeb3a206bdfd29180c983f0963d34a27e55bb8fc7a672",
+    "frozen-inputs/v1-strict-drift/planted-contract.json": "sha256:775c69d719ab66487438471d93877b295fc2efc0e146ad4f70ed7dbd3571fbee",
+    "frozen-inputs/v1-strict-drift/target.bundle": "sha256:99d9ab89838b659a8466a89ab95c1e705987ec52371e5677e4fa54c584007cfe",
+    "frozen-inputs/v1-strict-original/conforming-contract.json": "sha256:b0302228d86f4fbfcc5617954f7124c16807f3c07807e2d151d7ab53e6cd429c",
+    "frozen-inputs/v1-strict-original/planted-contract.json": "sha256:8e6cfdea38cfc0972e2a38bad4bb230a56492b90240700de796729d8df475d73",
+    "frozen-inputs/v1-strict-original/target.bundle": "sha256:2c68469f4598383bebb6751fe37763058217c202d4c0baded0efbfdd87ef47d3",
+    "frozen-inputs/v2-bounded-drift/conforming-contract.json": "sha256:744cbecd26c333b37c54cd4e2a9a1ba9576854bce36c07287cc0b295e58e0255",
+    "frozen-inputs/v2-bounded-drift/planted-contract.json": "sha256:1aea227e3139d22146e47f38f8359457491d84993702cd642ec860993b0c29d5",
+    "frozen-inputs/v2-bounded-drift/target.bundle": "sha256:9c3b673987645f971b3250c32d8faa6488c3ef73550aac790e44ecba78c3fb0d",
+    "frozen-inputs/v2-bounded-original/conforming-contract.json": "sha256:761eb559999b260b2e6d345922e52a3ebbeae26c69c832937d41b7f2b9efb20d",
+    "frozen-inputs/v2-bounded-original/planted-contract.json": "sha256:e411074ff96a8af601d35ab0747f37a5175778cc70d608aa1c8767f8fd3a1ba7",
+    "frozen-inputs/v2-bounded-original/target.bundle": "sha256:dc085810378e2ef99dd96a86200f948e82f7463e4ec5685593e840cfdc2d30e8",
+    "frozen-inputs/v2-strict-drift/conforming-contract.json": "sha256:67ca496ef9efc52adbfac4e5d48cbee22af7445223c82031a90d38f66a7d2811",
+    "frozen-inputs/v2-strict-drift/planted-contract.json": "sha256:3fc4e1148240a6bbfacc12f05aff5fe0b3c60701ef408597c6e937ccb47cd42f",
+    "frozen-inputs/v2-strict-drift/target.bundle": "sha256:769cd67a19dd1a4e8b5a44727b086409d9f6d695a6695d87212e66df982dbd3b",
+    "frozen-inputs/v2-strict-original/conforming-contract.json": "sha256:e1fe73e41537534c70c87e73b29f0d35ca1d2fc6cc1e35074c73c9f2acdf1ecb",
+    "frozen-inputs/v2-strict-original/planted-contract.json": "sha256:6bab0a78d1f10b35279d6dc15b8e087ae106e21c51248e79dd3de482017a1169",
+    "frozen-inputs/v2-strict-original/target.bundle": "sha256:2fd1c5caa0fc7e75c3323593397dfb3245f0bdb19bc7984679798f2d7546de8e",
+    "PREREGISTRATION.md": "sha256:66c907b9ec44d53fe05db2f1dbf9ed6e8240fd1714497810b941f50d94ebd889",
+    "harness/freeze.py": "sha256:18130885908ec6bce1491cc404146d9a1a91689f0a2618baa52c9a04efd8003e",
+    "INPUT-MANIFEST.json": "sha256:3098c10c4b33518de957bac41ac6f70f5f149e7bbde6322ccb959399e28058a7",
+    "frozen-inputs/holdout-consumers.json": "sha256:d383aaa6d475fb3891614bbca6a3d02f0fbcb6ea179c9067e06d9b54c247eefa",
+    "harness/run.mjs": "sha256:59316f051723076d0cb0c42faf94fa085bcdb1bf5ebe87c6e6c9fb7c6dd63820",
+    "harness/holdout.mjs": "sha256:f30beefc624c9792e7ba29fba6a3ec51967c70b2c31a82160dc0ded0d29434b2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "independent-consumer-holdout@1",
+  "frozenBeforeKernelExecution": true,
+  "sourcePairs": ["v1-strict-original", "v2-strict-original"],
+  "repeat": 3,
+  "model": "gpt-6-astra",
+  "reasoning": "xhigh",
+  "blinded": false,
+  "keyPolicy": "Fresh ephemeral Ed25519 synthetic test keys generated only in memory per repetition; retain public keys and signatures, never claim external certification.",
+  "cases": [
+    {"id": "h01-trusted-signatures", "mutation": "Sign both genuine receipts with the same ephemeral key; require that exact public key.", "expected": "ACCEPT", "confidence": 0.98},
+    {"id": "h02-untrusted-signer", "mutation": "Use those validly signed receipts but trust a different ephemeral public key.", "expected": "REJECT", "confidence": 0.99},
+    {"id": "h03-invalid-signature", "mutation": "Change the planted signature to 128 zero hex digits after signing; keep its pinned public key.", "expected": "REJECT", "confidence": 0.99},
+    {"id": "h04-nonexistent-check", "mutation": "Verify a genuine signed pair under an absent checkId with the correct trusted public key.", "expected": "REJECT", "confidence": 0.99}
+  ],
+  "withheld": "Do not call the activation consumer on these variants until the baseline is sealed and any accepted discovery repair has passed its hostile regression. No holdout consumer result may guide that first repair."
+}
