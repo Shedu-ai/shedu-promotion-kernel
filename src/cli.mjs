@@ -1,11 +1,11 @@
 #!/usr/bin/env node
+import { WORK_CONTRACT_KINDS, evaluationFormat, validateVersionedDocument } from "./contracts.mjs";
 
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateVersionedDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import {
@@ -115,10 +115,10 @@ function runCompile(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${flags.get("--contract")}` }
     ]);
   }
-  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], bytes);
+  const contract = validateVersionedDocument(WORK_CONTRACT_KINDS, bytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
-  const boundedContracts = workContract.schemaVersion === "work-contract@2";
+  const boundedContracts = evaluationFormat(workContract.schemaVersion).bounded;
   const repoDir = flags.get("--repo");
   const baseCommit = workContract.target.baseCommit;
 
@@ -234,7 +234,7 @@ function runEvaluate(argv) {
       { reasonCode: "AUTHORITY_OBJECT_MISSING", message: `cannot read contract file ${contractPath}` }
     ]);
   }
-  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
+  const contract = validateVersionedDocument(WORK_CONTRACT_KINDS, contractBytes);
   if (!contract.ok) return emitError(contract.errors[0].reasonCode, contract.errors);
   const outDir = flags.get("--out");
 

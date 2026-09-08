@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, cpSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { runControlCensus } from "../src/control-census.mjs";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import * as canonical from "../src/canonical-json.mjs";
@@ -14,7 +16,8 @@ import { scopeBoundaryClassify } from "../src/validators/scope-boundary.mjs";
 import { buildTargetRepo, commitAll, commitPlumbed, contractBytesOf, defaultTeamPack, git, writeRepoFile } from "./fixtures.mjs";
 
 const execution = { class: "SINGLE_PROCESS", maxTasks: 64 };
-function fixture(version = 3) {
+function fixture(version = 3, executionRequirement = execution) {
+  const execution = executionRequirement;
   const pack = defaultTeamPack(); pack.schemaVersion = "policy-pack@2"; pack.checks[0].validator.executionRequirement = execution;
   const target = buildTargetRepo({ targetPacks: [pack], profileOverrides: { schemaVersion: "policy-profile@2", executionPolicy: execution }, validationCommands: [{ commandId: "feature-value", phase: "CANDIDATE_VALIDATION", executionRequirement: execution, argv: ["node", "--input-type=module", "-e", 'import assert from "node:assert/strict"; import {feature} from "./src/feature.mjs"; assert.equal(feature,2);'] }] });
   writeRepoFile(target.repoDir, "src/feature.mjs", "export const feature = 2;\n");
@@ -83,14 +86,45 @@ test("v2 retains its original restricted path semantics", () => {
   assert.equal(run.result.ok,false);assert.equal(run.result.reasonCode,"SCHEMA_VIOLATION");
 });
 test("Unicode normalization aliases are detected by the scope control", () => {
-  const f=fixture();const candidate=commitPlumbed(f.target.repoDir,[{path:"src/café.mjs",content:"one\n"},{path:"src/cafe\u0301.mjs",content:"two\n"}],"normalization collision");
+  const f=fixture();git(f.target.repoDir,"config","core.precomposeUnicode","false");
+  const candidate=commitPlumbed(f.target.repoDir,[{path:"src/café.mjs",content:"one\n"},{path:"src/cafe\u0301.mjs",content:"two\n"}],"normalization collision");
+  const paths=listTree(f.target.repoDir,candidate).map(x=>x.path);
+  assert.ok(paths.includes("src/café.mjs")&&paths.includes("src/cafe\u0301.mjs"),"the fixture must retain both distinct Git names");
   const result=scopeBoundaryClassify({repoDir:f.target.repoDir,workContract:f.contractFor(candidate)});assert.ok(result.reasonCodes.includes("SCOPE_CASE_COLLISION"));
 });
 test("Git filename transport rejects invalid UTF-8 rather than substituting replacement characters", () => {
-  const f=fixture();const blob=git(f.target.repoDir,"rev-parse","HEAD:src/feature.mjs");
+  const f=fixture();const blob=git(f.target.repoDir,"rev-parse","HEAD:src/app.mjs");
   const row=Buffer.concat([Buffer.from(`100644 blob ${blob}\tbad`),Buffer.from([255,0])]);
   const result=spawnSync("git",["-C",f.target.repoDir,"mktree","-z"],{input:row,encoding:"buffer"});assert.equal(result.status,0,String(result.stderr));
   const tree=result.stdout.toString().trim();
   assert.throws(()=>listTree(f.target.repoDir,tree),/UTF-8/);
   assert.throws(()=>changedFilesBetween(f.target.repoDir,f.target.baseCommit,tree),/UTF-8/);
+});
+
+
+test("v3 retains bounded execution requirements and rejects missing execution authority", () => {
+  const f = fixture(3, { class: "BOUNDED_PROCESS_TREE", maxTasks: 128 });
+  writeRepoFile(f.target.repoDir, "src/bounded file.mjs", "export const value = 1;\n");
+  const run = f.evaluate(f.contractFor(commitAll(f.target.repoDir, "bounded version 3")));
+  verified(run, process.platform === "linux" ? "PROMOTABLE" : "BLOCKED");
+  assert.equal(run.result.plan.validationCommands[0].execution.class, "BOUNDED_PROCESS_TREE");
+  if (process.platform !== "linux") assert.ok(run.result.receipt.reasonCodes.includes("EXECUTION_BACKEND_REQUIRED"));
+  else {
+    const changed = structuredClone(run.result.receipt); changed.executionReports = [];
+    assert.equal(verifyReceipt({ receiptBytes: Buffer.from(JSON.stringify(changed)), planBytes: readFileSync(join(run.out, "plan.json")), evidenceDir: join(run.out, "artifacts/evidence") }).ok, false);
+  }
+});
+
+
+test("the control census accepts a genuine version 3 production trace and rejects a substituted one", () => {
+  const f = fixture(); writeRepoFile(f.target.repoDir, "src/census file.mjs", "export const value = 1;\n");
+  const run = f.evaluate(f.contractFor(commitAll(f.target.repoDir, "version 3 control census"))); verified(run, "PROMOTABLE");
+  const registry = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url)));
+  const production = { receiptBytes: run.result.receiptBytes, planBytes: readFileSync(join(run.out, "plan.json")), evidenceDir: join(run.out, "artifacts/evidence"), outcome: run.result };
+  const args = { srcDir: fileURLToPath(new URL("../src", import.meta.url)), registry };
+  const census = runControlCensus({ ...args, productionRuns: [production] });
+  assert.equal(census.complete, true, JSON.stringify(census.findings));
+  const changed = JSON.parse(production.receiptBytes); changed.schemaVersion = "promotion-receipt@2";
+  const rejected = runControlCensus({ ...args, productionRuns: [{ ...production, receiptBytes: Buffer.from(JSON.stringify(changed)) }] });
+  assert.equal(rejected.complete, false); assert.equal(rejected.productionObserved.length, 0);
 });

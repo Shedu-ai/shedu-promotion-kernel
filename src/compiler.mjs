@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument, validateValue } from "./contracts.mjs";
+import { validateDocument, validateValue, evaluationFormat } from "./contracts.mjs";
 import { knownBuiltinValidatorIds } from "./builtin-validators.mjs";
 import { isResolvableTargetExecutable } from "./validator-digest.mjs";
 import {
@@ -57,9 +57,11 @@ export function compilePlan({
   mandatoryPacks = mandatoryKernelPacks()
 }) {
   const contractVersion = workContract?.schemaVersion;
-  const boundedContracts = contractVersion === "work-contract@2";
-  const workContractKind = boundedContracts ? "work-contract@2" : "work-contract@1";
-  const profileKind = boundedContracts ? "policy-profile@2" : "policy-profile@1";
+  const format = evaluationFormat(contractVersion);
+  if (!format) return { ok: false, errors: [{ reasonCode: "SCHEMA_VIOLATION", message: `unsupported work-contract version ${JSON.stringify(contractVersion)}` }] };
+  const boundedContracts = format.bounded;
+  const workContractKind = format.contract;
+  const profileKind = format.profile;
   for (const [kind, value] of [
     [workContractKind, workContract],
     [profileKind, profile]
@@ -313,7 +315,7 @@ export function compilePlan({
   );
 
   const plan = {
-    schemaVersion: boundedContracts ? "compiled-policy-plan@2" : "compiled-policy-plan@1",
+    schemaVersion: format.plan,
     kernelRelease: KERNEL_RELEASE,
     repositoryId: workContract.target.repositoryId,
     baseCommit: workContract.target.baseCommit,
@@ -344,7 +346,7 @@ export function compilePlan({
   };
 
   if (errors.length > 0) return { ok: false, errors };
-  const planCheck = validateValue(boundedContracts ? "compiled-policy-plan@2" : "compiled-policy-plan@1", plan);
+  const planCheck = validateValue(format.plan, plan);
   if (!planCheck.ok) {
     throw new Error(`compiler produced an invalid plan: ${JSON.stringify(planCheck.errors)}`);
   }

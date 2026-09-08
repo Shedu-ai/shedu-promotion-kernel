@@ -1,0 +1,55 @@
+name: independent-platform-replication
+on:
+  push:
+    branches: [codex/filename-portability-corrections]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replicate:
+    name: ${{ matrix.os }} / ${{ matrix.source }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+        source: [baseline, corrected]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24.12.0'
+      - name: Select exact kernel source
+        env:
+          SOURCE_SELECTION: ${{ matrix.source }}
+        run: |
+          if [ "$SOURCE_SELECTION" = baseline ]; then
+            kernel_ref=e82010f0c6ae13fb59f62710e26ad2bdf49a7dc8
+          else
+            kernel_ref="$GITHUB_SHA"
+          fi
+          git worktree add --detach "$RUNNER_TEMP/kernel" "$kernel_ref"
+      - name: Pull pinned Linux execution image
+        if: runner.os == 'Linux'
+        run: node "$RUNNER_TEMP/kernel/scripts/pull-linux-sandbox-image.mjs"
+      - name: Replay frozen independent corpus and signed consumer cases
+        run: node experiments/2026-09-08-platform-replication/replicate.mjs "$RUNNER_TEMP/kernel" replication "$RUNNER_TEMP/credential-free-candidates"
+      - name: Preserve raw receipts and streams
+        if: always()
+        run: |
+          mkdir -p experiments/2026-09-08-platform-replication/evidence
+          tar --exclude=targets -czf "$RUNNER_TEMP/replication-evidence.tar.gz" -C experiments/2026-09-08-platform-replication evidence
+          shasum -a 256 "$RUNNER_TEMP/replication-evidence.tar.gz" > "$RUNNER_TEMP/replication-evidence.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: independent-replication-${{ matrix.os }}-${{ matrix.source }}
+          path: |
+            ${{ runner.temp }}/replication-evidence.tar.gz
+            ${{ runner.temp }}/replication-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90

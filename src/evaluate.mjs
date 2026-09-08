@@ -1,7 +1,7 @@
+import { WORK_CONTRACT_KINDS, evaluationFormat, validateDocument, validateValue, validateVersionedDocument } from "./contracts.mjs";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonicalize, digestOfBytes, digestOfCanonical } from "./canonical-json.mjs";
-import { validateDocument, validateValue, validateVersionedDocument } from "./contracts.mjs";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
 import { KERNEL_RELEASE, compilePlan } from "./compiler.mjs";
 import { resolveBuiltinValidator } from "./builtin-validators.mjs";
@@ -79,10 +79,10 @@ export function resolveEvidenceDir(outDir, artifactRoot) {
 export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks = null }) {
   const failure = (reasonCode, errors) => ({ ok: false, reasonCode, errors });
 
-  const contract = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
+  const contract = validateVersionedDocument(WORK_CONTRACT_KINDS, contractBytes);
   if (!contract.ok) return failure(contract.errors[0].reasonCode, contract.errors);
   const workContract = contract.value;
-  const boundedContracts = workContract.schemaVersion === "work-contract@2";
+  const boundedContracts = evaluationFormat(workContract.schemaVersion).bounded;
   const profileKind = boundedContracts ? "policy-profile@2" : "policy-profile@1";
   const packKind = boundedContracts ? "policy-pack@2" : "policy-pack@1";
   const { baseCommit } = workContract.target;
@@ -526,7 +526,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
   }
 
   const receipt = {
-    schemaVersion: boundedContracts ? "promotion-receipt@2" : "promotion-receipt@1",
+    schemaVersion: evaluationFormat(workContract.schemaVersion).receipt,
     kernelRelease: KERNEL_RELEASE,
     repositoryId: plan.repositoryId,
     baseCommit: plan.baseCommit,
@@ -553,7 +553,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
     signing: null,
     ...(boundedContracts ? { executionReports } : {})
   };
-  const receiptCheck = validateValue(boundedContracts ? "promotion-receipt@2" : "promotion-receipt@1", receipt);
+  const receiptCheck = validateValue(evaluationFormat(workContract.schemaVersion).receipt, receipt);
   if (!receiptCheck.ok) {
     return failure("SCHEMA_VIOLATION", receiptCheck.errors);
   }

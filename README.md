@@ -197,3 +197,5 @@ Do not report vulnerabilities in public issues. See [SECURITY.md](SECURITY.md).
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+Repository filenames with spaces and Unicode are supported through the explicit [version 3 path contracts](docs/repository-path-v3.md). The [frozen platform replication](experiments/2026-09-08-platform-replication/README.md) retains the independent experiment inputs and raw-evidence workflow.
