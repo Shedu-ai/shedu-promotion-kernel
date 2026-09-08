@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize, digestOfBytes } from "./canonical-json.mjs";
@@ -246,7 +247,7 @@ function currentKernelTree(repoDir) {
 // CLI's early check does not bypass admission. With no external evidence, the
 // result is FOUNDATION_ONLY.
 export function committedAdmission(overrides = {}) {
-  const repoDir = new URL("..", import.meta.url).pathname;
+  const repoDir = fileURLToPath(new URL("..", import.meta.url));
   const statusBytes = readIfPresent(new URL("../conformance/status.json", import.meta.url));
   const inventoryBytes = readIfPresent(new URL("../registry/kernel-mechanisms.json", import.meta.url));
   const controlBytes = readIfPresent(new URL("../registry/control-surface.json", import.meta.url));

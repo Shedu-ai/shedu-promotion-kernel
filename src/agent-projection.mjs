@@ -6,7 +6,7 @@ import {
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { canonicalize, digestOfCanonical } from "./canonical-json.mjs";
 import { readBoundedRegularFile, hashBoundedRegularFile } from "./bounded-file.mjs";
-import { validateDocument } from "./contracts.mjs";
+import { validateDocument, validateVersionedDocument } from "./contracts.mjs";
 import { validateAgentProjection } from "./agent-contracts.mjs";
 import {
   admittedKernelIdentity,
@@ -203,9 +203,10 @@ export function loadVerifiedPublishedBundle(outDir) {
     fail("EVIDENCE_MISSING", "published receipt, plan, or work contract is missing or not a bounded regular file");
   }
 
-  const contractDoc = validateDocument("work-contract@1", contractBytes);
+  const contractDoc = validateVersionedDocument(["work-contract@1", "work-contract@2"], contractBytes);
   if (!contractDoc.ok) fail(contractDoc.errors[0].reasonCode, contractDoc.errors[0].message);
-  const receiptDoc = validateDocument("promotion-receipt@1", receiptBytes);
+  const receiptKind = contractDoc.value.schemaVersion === "work-contract@2" ? "promotion-receipt@2" : "promotion-receipt@1";
+  const receiptDoc = validateDocument(receiptKind, receiptBytes);
   if (!receiptDoc.ok) fail(receiptDoc.errors[0].reasonCode, receiptDoc.errors[0].message);
   const receipt = receiptDoc.value;
   if (

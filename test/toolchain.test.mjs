@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -106,7 +107,7 @@ test("validator identity changes when a declared helper (transitive input) chang
 // ---- Finding 7: source is valid UTF-8 text, never binary -------------------
 
 test("all source, schema, and registry files are valid UTF-8 with no NUL bytes", () => {
-  const roots = ["../src", "../schemas", "../registry", "../packs"].map((r) => new URL(r, import.meta.url).pathname);
+  const roots = ["../src", "../schemas", "../registry", "../packs"].map((r) => fileURLToPath(new URL(r, import.meta.url)));
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -126,7 +127,7 @@ test("all source, schema, and registry files are valid UTF-8 with no NUL bytes",
 });
 
 test("git classifies sandbox.mjs as text", () => {
-  const r = spawnSync("git", ["-C", new URL("..", import.meta.url).pathname, "diff", "--numstat", "--no-index", "/dev/null", "src/sandbox.mjs"], { encoding: "utf8" });
+  const r = spawnSync("git", ["-C", fileURLToPath(new URL("..", import.meta.url)), "diff", "--numstat", "--no-index", "/dev/null", "src/sandbox.mjs"], { encoding: "utf8" });
   // --no-index against /dev/null: a text file reports numeric added lines; a
   // binary file reports "-". The first column must be numeric.
   const firstCol = (r.stdout.trim().split("\n").pop() ?? "").split("\t")[0];

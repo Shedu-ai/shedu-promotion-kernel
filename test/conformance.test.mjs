@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -20,7 +21,7 @@ const BENCH_ARTIFACTS = mkdtempSync(join(tmpdir(), "shedu-conformance-run-"));
 const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
 const declaredArgv = subject.conformanceArgv;
 const cliRun = spawnSync(process.execPath, declaredArgv.slice(1), {
-  cwd: new URL("..", import.meta.url).pathname,
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
   encoding: "buffer",
   env: { PATH: process.env.PATH ?? "", BENCH_ARTIFACTS }
 });

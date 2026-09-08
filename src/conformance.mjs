@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { git as gitAuthority } from "./git-authority.mjs";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -532,7 +533,7 @@ export function runConformance({ outDir }) {
   const controlRegistry = JSON.parse(readFileSync(new URL("../registry/control-surface.json", import.meta.url), "utf8"));
   const productionRuns = executedCases.flatMap((executed) => executed.productionRuns);
   const census = runControlCensus({
-    srcDir: new URL("../src", import.meta.url).pathname,
+    srcDir: fileURLToPath(new URL("../src", import.meta.url)),
     registry: controlRegistry,
     productionRuns
   });

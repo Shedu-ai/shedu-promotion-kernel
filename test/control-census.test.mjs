@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readFileSync, writeFileSync, appendFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -13,7 +14,7 @@ import { isAdmitted } from "../src/admission.mjs";
 import { validateDocument } from "../src/contracts.mjs";
 import { isolateExecution } from "../src/sandbox.mjs";
 
-const SRC = new URL("../src", import.meta.url).pathname;
+const SRC = fileURLToPath(new URL("../src", import.meta.url));
 
 function loadRegistry() {
   const doc = validateDocument("control-surface@1", readFileSync(new URL("../registry/control-surface.json", import.meta.url)));

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import { validateDocument } from "./contracts.mjs";
 // bundle publication.
 export const CONTROL_POINTS = Object.freeze(["evaluation-supervisor"]);
 
-const WORKER = new URL("./worker-evaluate.mjs", import.meta.url).pathname;
+const WORKER = fileURLToPath(new URL("./worker-evaluate.mjs", import.meta.url));
 const OPERATION_CLOCKS = new WeakMap();
 
 // Start the whole-operation clock before CLI prework without exposing a

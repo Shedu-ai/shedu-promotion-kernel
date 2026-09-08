@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -24,8 +25,8 @@ import {
   writeRepoFile
 } from "./fixtures.mjs";
 
-const root = new URL("..", import.meta.url).pathname;
-const activationRoot = new URL("../activation/experimental-v1/", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
+const activationRoot = fileURLToPath(new URL("../activation/experimental-v1/", import.meta.url));
 const launcherUrl = new URL("../scripts/experimental-kernel.mjs", import.meta.url).href;
 
 function invoke(argv, cacheRoot, timeout = 180_000, env = process.env) {

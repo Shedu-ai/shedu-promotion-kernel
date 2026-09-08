@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
@@ -97,7 +98,7 @@ test("a containment halt is recorded as FIRED in the production trace", () => {
 // structurally impossible: the flag no longer exists, and stripping the CLI's
 // admission plumbing cannot make the worker promote an unadmitted tree.
 test("the admission caller-flag is gone and no CLI edit makes the worker promote an unadmitted tree", () => {
-  const kernelRoot = new URL("..", import.meta.url).pathname;
+  const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
 
   // Static: the disabling flag the reviewer flipped no longer exists anywhere.
   const supervisorSrc = readFileSync(join(kernelRoot, "src", "supervisor.mjs"), "utf8");

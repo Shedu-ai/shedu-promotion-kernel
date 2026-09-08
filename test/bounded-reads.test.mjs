@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
@@ -31,7 +32,7 @@ test("a FIFO attestation path is refused by the bounded read and does not hang a
 // The CLI's contract read is likewise bounded: a FIFO contract is refused
 // before the supervised timer, so the whole-operation path cannot hang there.
 test("a FIFO contract path is refused by the CLI's bounded read", () => {
-  const kernelRoot = new URL("..", import.meta.url).pathname;
+  const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
   const dir = mkdtempSync(join(tmpdir(), "shedu-fifo-contract-"));
   const fifo = join(dir, "contract.fifo");
   mkfifo(fifo);
@@ -62,7 +63,7 @@ test("a bounded regular contract is accepted (the bound does not reject legitima
   const candidate = commitAll(target.repoDir, "feature");
   writeFileSync(path, contractBytesOf(target.contractFor(candidate)));
   const out = mkdtempSync(join(tmpdir(), "shedu-out-"));
-  const kernelRoot = new URL("..", import.meta.url).pathname;
+  const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
   // FOUNDATION_ONLY dev tree → NOT_ADMITTED, but the contract read itself
   // succeeded (the failure is admission, not AUTHORITY_OBJECT_MISSING).
   const run = spawnSync(
@@ -80,7 +81,7 @@ test("a final-path symlink is refused instead of creating a stat/read substituti
   const link = join(dir, "contract.json");
   writeFileSync(target, "{}\n");
   symlinkSync(target, link);
-  const kernelRoot = new URL("..", import.meta.url).pathname;
+  const kernelRoot = fileURLToPath(new URL("..", import.meta.url));
   const out = mkdtempSync(join(tmpdir(), "shedu-out-"));
   const run = spawnSync(
     process.execPath,
