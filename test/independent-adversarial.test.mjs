@@ -129,7 +129,11 @@ test("version 2 receipts remain consumable by the status and evidence interfaces
   assert.equal(projectPublishedEvaluation(fixture.output).disposition, "PROMOTABLE");
   const view = inspectPublishedEvidence(fixture.output, "command-stdout-v2-proof", 256);
   assert.equal(view.schemaVersion, "kernel-evidence-view@1");
-  assert.ok(JSON.stringify(view).includes("v2-visible"));
+  assert.equal(view.verification, "VERIFIED");
+  assert.equal(view.artifact.artifactId, "command-stdout-v2-proof");
+  assert.equal(view.artifact.digest, digestOfBytes(Buffer.from("v2-visible")));
+  assert.equal(view.artifact.byteLength, Buffer.byteLength("v2-visible"));
+  assert.equal(view.preview, null); // Binary-classified stdout exposes metadata only.
 });
 
 test("version-aware projection still rejects a receipt whose declared version was substituted", () => {
