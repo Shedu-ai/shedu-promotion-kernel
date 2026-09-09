@@ -20,10 +20,13 @@ export const OBSERVER_SOURCE = `(() => {
  function lock(value) {
   if((typeof value!=='object' && typeof value!=='function') || value===null || visited.has(value))return;
   visited.add(value);
+  lock(proto(value));
   for(const key of ownKeys(value)) { const d=descriptor(value,key); if(d && 'value' in d)lock(d.value); }
   freeze(value);
  }
  for(const value of [Object,Array,Function,Number,String,Boolean,BigInt,Symbol,Map,Set,WeakMap,WeakSet,JSON,Reflect,Math,Date,RegExp,Promise,Error,TypeError,RangeError,SyntaxError])lock(value);
+ // Iterators have shared prototypes that are not constructor own-properties.
+ for(const value of [[][Symbol.iterator](), new Map()[Symbol.iterator](), new Set()[Symbol.iterator](), ""[Symbol.iterator]()])lock(value);
  function graph(roots) {
   const nodes=[],seen=new S();let properties=0;
   function visit(value,depth) {

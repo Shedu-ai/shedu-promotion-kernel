@@ -102,3 +102,12 @@ test('oversized returned data cannot produce a passing truncated observation bat
  const result=executeSource('export const identity=x=>Array(10000).fill("large");',caseDocument,{maxOutputBytes:1024});
  assert.notEqual(result.report?.status,'PASS');
 });
+
+test('candidate iterator-prototype hooks cannot hide argument mutations from the observer',()=>{
+ const source=`const iterator=Object.getPrototypeOf([][Symbol.iterator]());
+ const next=iterator.next;iterator.next=function(){let r=next.call(this);if(r.value==='hidden')r=next.call(this);return r;};
+ export const identity=x=>{x.hidden=2;return x;};`;
+ const cases=structuredClone(caseDocument);cases.cases[0].preserveArgs=[0];
+ const result=executeSource(source,cases);
+ assert.notEqual(result.report?.status,'PASS','iterator hooks must not hide a mutation');
+});
