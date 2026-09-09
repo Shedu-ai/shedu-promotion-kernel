@@ -92,4 +92,3 @@ export function validateCases(document) {
   if (document.criterionIds.some((id) => !covered.has(id))) throw new Error("acceptance criterion has no scenario");
   return document;
 }
-

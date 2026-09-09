@@ -1,0 +1,3 @@
+
+# The generated JS bundle embeds literal WebAssembly bytes. Preserve its bytes.
+vendor/quickjs/runtime.cjs binary linguist-vendored
