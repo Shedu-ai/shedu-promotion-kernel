@@ -170,8 +170,9 @@ and policy profile.
 
 ## Install and try a policy pack
 
-The distribution has no runtime dependencies and does not connect to a model
-provider. Follow [the installation guide](docs/INSTALLATION.md) for the public
+The distribution installs without runtime package downloads and does not connect
+to a model provider. Behavioral fixtures use a vendored QuickJS WebAssembly engine;
+see [its bounded runtime contract](docs/mechanical-coverage.md). Follow [the installation guide](docs/INSTALLATION.md) for the public
 experimental launcher, supported-platform boundaries, and advanced independent
 verification.
 
@@ -192,7 +193,8 @@ npm run verify:sample-policy
 npm run subject:probe
 ```
 
-The project has no runtime dependencies and requires Node.js 22 or newer.
+The project requires Node.js 22 or newer. Its behavioral runtime is vendored with
+licenses, pinned build inputs and a reproducibility check.
 
 ## Security
 

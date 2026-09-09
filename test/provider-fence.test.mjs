@@ -52,7 +52,7 @@ test("no production file reads a provider credential variable", () => {
   }
 });
 
-test("the dependency tree is empty: no model SDK can hide in node_modules", () => {
+test("the package declares no install-time dependencies or model SDKs", () => {
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.dependencies, undefined);
   assert.equal(pkg.devDependencies, undefined);

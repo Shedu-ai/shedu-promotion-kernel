@@ -255,6 +255,12 @@
                 },
                 "builtinId": {
                   "$ref": "#/$defs/versionedId"
+                },
+                "casesPath": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[A-Za-z0-9._/-]+$"
                 }
               }
             },

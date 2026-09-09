@@ -70,8 +70,8 @@ const execution = { class: "SINGLE_PROCESS", maxTasks: 64 };
 for (const version of [1, 2, 3]) test(`v${version} behavioral evaluation and trusted receipt CLI fail closed`, () => {
   const helper = readFileSync(new URL("../policy-tools/behavioral-check.mjs", import.meta.url), "utf8");
   const pack = makePack({ schemaVersion: version === 1 ? "policy-pack@1" : "policy-pack@2", checks: [makeCheck({
-    checkId: "behavior", outputSchemaId: "behavioral-report@1", inputs: ["acceptance-criterion.ac-1"],
-    validator: { kind: "TARGET_COMMAND", argv: ["node", "policy/behavioral-check.mjs", "policy/cases.json"], inputManifest: ["policy/behavioral-check.mjs", "policy/cases.json"], ...(version === 1 ? {} : { executionRequirement: execution }) }
+    checkId: "behavior", outputSchemaId: "behavioral-report@2", inputs: ["acceptance-criterion.ac-1"],
+    validator: { kind: "BUILTIN", builtinId: "behavioral-cases-verify@1", casesPath: "policy/cases.json" }
   })] });
   const target = buildTargetRepo({ targetPacks: [pack], ...(version === 1 ? {} : { profileOverrides: { schemaVersion: "policy-profile@2", executionPolicy: execution } }), validationCommands: [{ commandId: "syntax", phase: "CANDIDATE_VALIDATION", argv: ["node", "--check", "src/check.mjs"], ...(version === 1 ? {} : { executionRequirement: execution }) }] });
   writeRepoFile(target.repoDir, "policy/behavioral-check.mjs", helper);
@@ -102,5 +102,5 @@ for (const version of [1, 2, 3]) test(`v${version} behavioral evaluation and tru
   const earlyCandidate = commitAll(target.repoDir, "early zero exit bypass");
   const earlyContract = { ...contract, target: { ...contract.target, candidate: { kind: "COMMIT", id: earlyCandidate } } };
   const early = evaluateCandidate({ repoDir: target.repoDir, contractBytes: contractBytesOf(earlyContract), outDir: mkdtempSync(join(tmpdir(), "coverage-early-exit-")) });
-  assert.equal(early.receipt.disposition, "BLOCKED"); assert.ok(early.receipt.reasonCodes.includes("EVIDENCE_MISSING"));
+  assert.equal(early.receipt.disposition, "BLOCKED"); assert.ok(early.receipt.reasonCodes.includes("COMMAND_FAILED"));
 });

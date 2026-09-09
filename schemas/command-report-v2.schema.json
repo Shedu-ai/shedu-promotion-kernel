@@ -88,6 +88,9 @@
     "timedOut": {
       "type": "boolean"
     },
+    "stdin": {
+      "$ref": "#/$defs/stream"
+    },
     "stdout": {
       "$ref": "#/$defs/stream"
     },

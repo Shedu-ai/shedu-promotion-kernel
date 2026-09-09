@@ -16,7 +16,6 @@ import { createDeadline } from "./deadline.mjs";
 import { verifyContractAuthorization } from "./authorization.mjs";
 import { committishForCandidate, materializeWorktree, gitRun } from "./workspace.mjs";
 import { verifyReceipt } from "./receipt.mjs";
-import { behavioralReportComplete } from "./behavioral-report.mjs";
 
 // Control points implemented in the evaluation orchestrator.
 export const CONTROL_POINTS = Object.freeze(["containment-halt-routing", "artifact-root-enforcement"]);
@@ -307,6 +306,10 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
             mechanismRegistry,
             deadline
           });
+          if (check.validator.builtinId === "behavioral-cases-verify@1" && partial.details?.reports?.some(entry => entry.executed)) {
+            for (const control of ["toolchain-authority", "sandbox-network-isolation", "sandbox-read-isolation", "sandbox-write-isolation", "sandbox-process-ceiling"]) engage(control, "PASS");
+            engage("command-output-ceiling", partial.details.reports.some(entry => entry.report?.stdout.truncated) ? "TRUNCATED" : "PASS", false);
+          }
           for (const entry of partial.details?.reports ?? []) {
             if (entry.executed === true && entry.report?.execution) {
               executionReports.push({ commandId: entry.commandId, report: entry.report.execution });
@@ -376,12 +379,6 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
               partial = { outcome: "FIRED", reasonCodes: ["TASK_BUDGET_EXCEEDED"], evidence: refs };
             } else if (!execution.succeeded) {
               partial = { outcome: "FIRED", reasonCodes: ["COMMAND_FAILED"], evidence: refs };
-            } else if (check.outputSchemaId === "behavioral-report@1" && !behavioralReportComplete(
-              execution.stdout,
-              check.inputs.filter((input) => input.startsWith("acceptance-criterion.")).map((input) => input.slice("acceptance-criterion.".length)),
-              JSON.parse(readFileSync(join(baseRealDir, check.validator.argv[2]), "utf8")).cases
-            )) {
-              partial = { outcome: "FIRED", reasonCodes: ["EVIDENCE_MISSING"], evidence: refs };
             } else if (deadline.expired()) {
               partial = { outcome: "FIRED", reasonCodes: ["DEADLINE_EXCEEDED"], evidence: refs };
             } else {

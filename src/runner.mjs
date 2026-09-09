@@ -60,6 +60,7 @@ export function runTargetCommand({
   executionRequirement = null,
   readRoots = [],
   readFiles = [],
+  stdinBytes = null,
   toolchain = kernelToolchain()
 }) {
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((a) => typeof a !== "string" || a.length === 0)) {
@@ -73,6 +74,9 @@ export function runTargetCommand({
   }
   if (executionRequirement !== null && !isExecutionRequirement(executionRequirement)) {
     throw new Error("executionRequirement must be a closed execution requirement");
+  }
+  if (stdinBytes !== null && (!Buffer.isBuffer(stdinBytes) || stdinBytes.length > 4 * 1024 * 1024)) {
+    throw new Error("stdinBytes must be a bounded buffer");
   }
 
   // Resolve the executable through the closed toolchain and verify its
@@ -112,7 +116,8 @@ export function runTargetCommand({
     readRoots: realReadRoots,
     readFiles: realReadFiles,
     cwd: realCwd,
-    environment: env
+    environment: env,
+    passStdin: stdinBytes !== null
   });
   let spawned;
   let resourceReport = null;
@@ -126,7 +131,8 @@ export function runTargetCommand({
       timeout: timeoutMs,
       killSignal: "SIGKILL",
       maxBuffer: maxOutputBytes + isolated.maxBufferOverhead,
-      encoding: "buffer"
+      encoding: "buffer",
+      input: stdinBytes ?? undefined
     });
     if (isolated.parseSpawnResult && !spawned.error && spawned.status === 0) {
       try {
@@ -173,6 +179,7 @@ export function runTargetCommand({
     exitCode: typeof spawned.status === "number" ? spawned.status & 0xff : null,
     signal: spawned.signal ?? null,
     timedOut,
+    ...(stdinBytes === null ? {} : { stdin: streamReport(stdinBytes, false) }),
     stdout: streamReport(stdout.bytes, overflowed),
     stderr: streamReport(stderr.bytes, overflowed),
     ...(executionRequirement === null

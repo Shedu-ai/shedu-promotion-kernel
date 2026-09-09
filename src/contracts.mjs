@@ -287,6 +287,12 @@ const SEMANTIC = {
         errors.push(...argvSecretErrors(check.validator.argv, `checks[${check.checkId}].validator.argv`));
         errors.push(...pathErrors(check.validator.inputManifest, `checks[${check.checkId}].validator.inputManifest`));
       }
+      if (check.validator.kind === "BUILTIN") {
+        if (check.validator.builtinId === "behavioral-cases-verify@1") {
+          if (!check.validator.casesPath) errors.push(err("SCHEMA_VIOLATION", "behavioral builtin requires casesPath"));
+          else errors.push(...pathErrors([check.validator.casesPath], "validator.casesPath"));
+        } else if (check.validator.casesPath !== undefined) errors.push(err("SCHEMA_VIOLATION", "casesPath is reserved for the behavioral builtin"));
+      }
       errors.push(...envAllowlistSecretErrors(check.envAllowlist, `checks[${check.checkId}].envAllowlist`));
     }
     return errors;
@@ -313,6 +319,8 @@ const SEMANTIC = {
           errors.push(err("PLAN_ORDER_VIOLATION", `check ${check.checkId} depends on ${dep}, which does not precede it in the plan`));
         }
       }
+      if (check.validator.casesPath !== undefined) errors.push(...pathErrors([check.validator.casesPath], "validator.casesPath"));
+      if (check.validator.builtinId === "behavioral-cases-verify@1" && (!check.validator.casesPath || check.outputSchemaId !== "behavioral-report@2")) errors.push(err("SCHEMA_VIOLATION", "behavioral builtin requires casesPath and report@2"));
       seen.add(check.checkId);
     }
     return errors;
@@ -583,9 +591,10 @@ SEMANTIC["compiled-policy-plan@2"] = (doc) => {
     errors.push(...compiledExecutionErrors(command.execution, `validationCommands[${command.commandId}].execution`));
   }
   for (const check of doc.checks) {
-    if (check.validator.kind === "TARGET_COMMAND") {
+    if (check.validator.kind === "TARGET_COMMAND" || check.validator.builtinId === "behavioral-cases-verify@1") {
       if (check.execution === null) errors.push(err("SCHEMA_VIOLATION", `checks[${check.checkId}].execution is required for a target command`));
       else errors.push(...compiledExecutionErrors(check.execution, `checks[${check.checkId}].execution`));
+      if (check.validator.builtinId === "behavioral-cases-verify@1" && check.execution?.class !== "SINGLE_PROCESS") errors.push(err("SCHEMA_VIOLATION", "behavioral worker requires single-process execution"));
     } else if (check.execution !== null) {
       errors.push(err("SCHEMA_VIOLATION", `checks[${check.checkId}].execution must be null for a builtin validator`));
     }

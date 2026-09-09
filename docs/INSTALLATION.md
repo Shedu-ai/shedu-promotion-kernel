@@ -1,8 +1,9 @@
 # Installation
 
-The public experimental distribution is usable on macOS and Linux. It has no
-runtime package dependencies, model provider, API key, database, or hosted
-service.
+The public experimental distribution is usable on macOS and Linux. It requires
+no runtime package downloads, model provider, API key, database, or hosted service.
+Behavioral fixtures use the vendored QuickJS WebAssembly runtime described in
+[mechanical coverage](mechanical-coverage.md).
 
 ## Requirements
 

@@ -12,6 +12,7 @@ import { kernelToolchain, isAdmittedExecutableName, ToolchainError } from "./too
 
 export function builtinValidatorDigest(builtinId) {
   const descriptor = BUILTIN_VALIDATORS[builtinId];
+  if (descriptor.sourceFiles) return digestOfCanonical({schema: "builtin-source-identity@1", files: descriptor.sourceFiles.map(path => ({path, digest: digestOfBytes(readFileSync(new URL(path, import.meta.url)))}))});
   const bytes = readFileSync(new URL(descriptor.sourceFile, import.meta.url));
   return digestOfBytes(bytes);
 }
@@ -47,6 +48,15 @@ export function targetValidatorDigest(repoDir, baseCommit, validator, { toolchai
 }
 
 export function validatorDigestForPlanCheck(repoDir, baseCommit, check, opts = {}) {
+  if (check.validator.builtinId === "behavioral-cases-verify@1") {
+    const path = check.validator.casesPath;
+    if (!validateRelativePath(path).ok) throw new ToolchainError("behavioral cases path is not contained");
+    const blob = readAuthorityBlob(repoDir, baseCommit, path);
+    if (!blob.ok) throw new ToolchainError("behavioral cases missing from trusted base");
+    const toolchain = opts.toolchain ?? kernelToolchain();
+    const executable = toolchain.resolve("node");
+    return digestOfCanonical({schema: "behavioral-validator-identity@1", implementation: builtinValidatorDigest(check.validator.builtinId), cases: {path, digest: digestOfBytes(blob.bytes)}, toolchainDigest: toolchain.authorityDigest(), executable: {name: executable.name, digest: executable.digest}});
+  }
   return check.validator.kind === "BUILTIN"
     ? builtinValidatorDigest(check.validator.builtinId)
     : targetValidatorDigest(repoDir, baseCommit, check.validator, opts);

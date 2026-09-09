@@ -1,0 +1,10 @@
+{
+  "runtime": "quickjs-emscripten",
+  "version": "0.32.0",
+  "variant": "@jitl/quickjs-singlefile-cjs-release-sync",
+  "builder": "esbuild@0.28.2",
+  "upstream": "https://github.com/justjake/quickjs-emscripten",
+  "bundleSHA256": "9032f027fa9c5e6ea95b502401a8631f0042e94ab55de61a84654cd26bd03255",
+  "bundledBytes": 907449,
+  "scope": "Vendored build; no runtime package download. Expected values and assertion code are not exposed to candidate JavaScript."
+}

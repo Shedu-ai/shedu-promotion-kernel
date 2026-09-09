@@ -105,7 +105,7 @@ export function verifyReceipt({
       expected.set(command.commandId, { execution: command.execution, ownerCheckId: null, phase: command.phase });
     }
     for (const check of plan.checks) {
-      if (check.validator.kind === "TARGET_COMMAND") {
+      if (check.validator.kind === "TARGET_COMMAND" || check.validator.builtinId === "behavioral-cases-verify@1") {
         expected.set(check.checkId, { execution: check.execution, ownerCheckId: check.checkId, phase: check.phase });
       }
     }

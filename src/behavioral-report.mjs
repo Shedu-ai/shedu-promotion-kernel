@@ -6,7 +6,7 @@ export function behavioralReportComplete(bytes, criterionIds, expectedCases) {
     const keys = (value, expected) => value && typeof value === "object" && !Array.isArray(value) &&
       Object.keys(value).length === expected.length && expected.every((key) => Object.hasOwn(value, key));
     if (!keys(report, ["schemaVersion", "status", "scenarios", "results"]) ||
-      report.schemaVersion !== "behavioral-report@1" || report.status !== "PASS" ||
+      report.schemaVersion !== "behavioral-report@2" || report.status !== "PASS" ||
       !Array.isArray(report.results) || report.results.length === 0 || report.results.length > 4096 ||
       report.scenarios !== report.results.length || criterionIds.length === 0 ||
       !Array.isArray(expectedCases) || expectedCases.length !== report.results.length) return false;

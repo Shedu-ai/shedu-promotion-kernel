@@ -306,6 +306,7 @@ export function buildLinuxOciInvocation({
   execution = EXECUTION_PRESETS.STRICT,
   maxOutputBytes = 8 * 1024 * 1024,
   projectionDir = null,
+  passStdin = false,
   containerName = `shedu-kernel-${randomBytes(12).toString("hex")}`
 }) {
   if (executablePath !== LINUX_OCI_NODE_PATH) {
@@ -318,6 +319,7 @@ export function buildLinuxOciInvocation({
     throw new SandboxUnavailableError("Linux OCI execution requires a closed execution authority");
   }
   const bounded = execution.class === "BOUNDED_PROCESS_TREE";
+  if (passStdin && bounded) throw new SandboxUnavailableError("stdin is supported only for single-process execution");
   const portable = portableLinuxExecutionAuthority(execution.class);
   if (bounded && (!authority.seccompDigests?.bounded || !authority.supervisorDigest)) {
     throw new SandboxUnavailableError("Linux OCI authority does not bind the bounded seccomp policy and supervisor");
@@ -329,6 +331,7 @@ export function buildLinuxOciInvocation({
   const args = [
     "run",
     "--rm",
+    ...(passStdin ? ["--interactive"] : []),
     "--pull", "never",
     "--name", containerName,
     "--network", "none",
@@ -532,7 +535,7 @@ export function boundedSandboxStatus() {
 // materializations). Throws SandboxUnavailableError when isolation cannot be
 // enforced — including a requested execution class this backend cannot cap
 // exactly.
-export function isolateExecution({ executablePath, argvTail, maxProcesses, execution = null, maxOutputBytes = 8 * 1024 * 1024, readRoots = [], readFiles = [], cwd = process.cwd(), environment = {} }) {
+export function isolateExecution({ executablePath, argvTail, maxProcesses, execution = null, maxOutputBytes = 8 * 1024 * 1024, readRoots = [], readFiles = [], cwd = process.cwd(), environment = {}, passStdin = false }) {
   const status = sandboxStatus();
   if (!status.available) {
     throw new SandboxUnavailableError(`target-command isolation unavailable: ${status.reason}`);
@@ -569,6 +572,7 @@ export function isolateExecution({ executablePath, argvTail, maxProcesses, execu
         readFiles: realFiles,
         cwd: realCwd,
         environment,
+        passStdin,
         execution: effectiveExecution,
         maxOutputBytes,
         projectionDir: projection

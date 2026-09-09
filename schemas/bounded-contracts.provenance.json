@@ -9,7 +9,7 @@
     },
     {
       "path": "policy-pack-v2.schema.json",
-      "digest": "sha256:d8d3300d0eef4ebcf8ed47688dfd9f37d9a8b4e35ce372c560eaa021dc383e4a"
+      "digest": "sha256:093de966a2496c43238f8014c99c39fa48848bc7e0ba9bb717c953386493ec9d"
     },
     {
       "path": "policy-profile-v2.schema.json",
@@ -17,11 +17,11 @@
     },
     {
       "path": "compiled-policy-plan-v2.schema.json",
-      "digest": "sha256:6204fdd03fc790dce016dd938e5736e3c91aa1f7883573d75ebe7e7f982761fa"
+      "digest": "sha256:2c66e17b48d204912d5c81e392c7094eba91fd37b6b2c3e15fa52f29ce0116e8"
     },
     {
       "path": "command-report-v2.schema.json",
-      "digest": "sha256:9d1a697e44806bcc9061aadae8f19bfbbaea6f7c6bc7546f01d62705b47c0a58"
+      "digest": "sha256:c086333ecfc3b3141cf4ea372d5ec94345330a955fa78d6db947a9ac8548fd6f"
     },
     {
       "path": "promotion-receipt-v2.schema.json",

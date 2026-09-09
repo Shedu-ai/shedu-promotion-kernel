@@ -218,12 +218,16 @@ export function compilePlan({
       if (check.validator.kind === "TARGET_COMMAND" && !isResolvableTargetExecutable(check.validator.argv[0])) {
         fail("UNKNOWN_VALIDATOR", `check ${check.checkId} target command executable ${JSON.stringify(check.validator.argv[0])} is not an admitted toolchain executable`);
       }
-      if (check.outputSchemaId === "behavioral-report@1" && (
-        check.validator.kind !== "TARGET_COMMAND" || check.validator.argv.length !== 3 ||
-        !check.validator.inputManifest.includes(check.validator.argv[1]) ||
-        !check.validator.inputManifest.includes(check.validator.argv[2]) ||
-        !check.inputs.some((input) => input.startsWith("acceptance-criterion."))
-      )) fail("POLICY_CONFLICT", `behavioral check ${check.checkId} requires a bound runner, cases file and criterion mapping`);
+      if (check.outputSchemaId === "behavioral-report@1") {
+        fail("POLICY_CONFLICT", `behavioral check ${check.checkId} uses an unsafe legacy report; migrate to behavioral-cases-verify@1 and behavioral-report@2`);
+      }
+      if (check.validator.builtinId === "behavioral-cases-verify@1" || check.outputSchemaId === "behavioral-report@2") {
+        if (check.validator.kind !== "BUILTIN" || check.validator.builtinId !== "behavioral-cases-verify@1" ||
+            !check.validator.casesPath || check.outputSchemaId !== "behavioral-report@2" ||
+            !check.inputs.some(input => input.startsWith("acceptance-criterion."))) {
+          fail("POLICY_CONFLICT", `behavioral check ${check.checkId} requires trusted cases and the isolated builtin`);
+        }
+      }
     }
   }
 
@@ -334,7 +338,9 @@ export function compilePlan({
               execution:
                 check.validator.kind === "TARGET_COMMAND"
                   ? compileExecution(check.validator.executionRequirement, `check ${check.checkId}`)
-                  : null
+                  : check.validator.builtinId === "behavioral-cases-verify@1"
+                    ? compileExecution({ class: "SINGLE_PROCESS", maxTasks: Math.min(64, workContract.resourceCeilings.executionCeiling.maxTasks, profile.executionPolicy.maxTasks) }, `check ${check.checkId}`)
+                    : null
             }
           : {})
       });

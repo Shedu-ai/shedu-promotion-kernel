@@ -1,3 +1,4 @@
+import {behavioralCasesVerify} from './validators/behavioral-cases.mjs';
 import { candidateIdentityVerify, candidateTreeStability } from "./validators/candidate-identity.mjs";
 import { scopeBoundaryClassify } from "./validators/scope-boundary.mjs";
 import { validationPlanExecute } from "./validators/validation-plan.mjs";
@@ -12,6 +13,13 @@ import { orphanClosureVerify } from "./validators/orphan-closure.mjs";
 // `sourceFile` names the module whose bytes are the validator identity
 // digest bound into receipts.
 const definitions = {
+  "behavioral-cases-verify@1": {
+    packId: "behavioral-validation",
+    outputSchemaId: "behavioral-report@2",
+    sourceFile: "validators/behavioral-cases.mjs",
+    sourceFiles: ["validators/behavioral-cases.mjs", "behavioral-parent.mjs", "behavioral-data.mjs", "behavioral-worker.mjs", "behavioral-observer-source.mjs", "runner.mjs", "sandbox.mjs", "../vendor/quickjs/runtime.cjs", "../vendor/quickjs/provenance.json"],
+    run: behavioralCasesVerify
+  },
   "candidate-identity-verify@1": {
     packId: "candidate-identity",
     outputSchemaId: "check-result@1",
