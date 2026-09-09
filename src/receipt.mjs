@@ -71,16 +71,30 @@ export function verifyReceipt({
   planBytes,
   evidenceDir = null,
   evidenceMaxTotalBytes = Number.MAX_SAFE_INTEGER,
-  expectedPublicKey = null
+  expectedPublicKey = null,
+  verificationPolicy = "INSPECT"
 }) {
   const errors = [];
   const fail = (reasonCode, message) => errors.push({ reasonCode, message });
+  const rejected = (errors) => ({ ok: false, errors, disposition: null, receipt: null, plan: null, evidenceIndex: null, verificationLevel: "NONE" });
+  if (!["INSPECT", "TRUSTED_EVIDENCE"].includes(verificationPolicy)) {
+    return rejected([{ reasonCode: "SCHEMA_VIOLATION", message: "unknown receipt verification policy" }]);
+  }
+  if (verificationPolicy === "TRUSTED_EVIDENCE") {
+    if (typeof expectedPublicKey !== "string" || !/^[0-9a-f]{64}$/.test(expectedPublicKey)) {
+      fail("SIGNATURE_INVALID", "trusted evidence requires an independently pinned Ed25519 public key");
+    }
+    if (typeof evidenceDir !== "string" || evidenceDir.length === 0) {
+      fail("EVIDENCE_MISSING", "trusted evidence requires the complete evidence directory");
+    }
+    if (errors.length) return rejected(errors);
+  }
 
   const receiptDoc = validateVersionedDocument(RECEIPT_KINDS, receiptBytes);
-  if (!receiptDoc.ok) return { ok: false, errors: receiptDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
+  if (!receiptDoc.ok) return rejected(receiptDoc.errors);
   const expectedPlanKind = evaluationFormat(receiptDoc.value.schemaVersion).plan;
   const planDoc = validateDocument(expectedPlanKind, planBytes);
-  if (!planDoc.ok) return { ok: false, errors: planDoc.errors, disposition: null, receipt: null, plan: null, evidenceIndex: null };
+  if (!planDoc.ok) return rejected(planDoc.errors);
   const receipt = receiptDoc.value;
   const plan = planDoc.value;
   const planDigest = digestOfCanonical(plan);
@@ -257,6 +271,9 @@ export function verifyReceipt({
     disposition: ok ? receipt.disposition : null,
     receipt: ok ? receipt : null,
     plan: ok ? plan : null,
-    evidenceIndex: ok ? (evidence?.index ?? null) : null
+    evidenceIndex: ok ? (evidence?.index ?? null) : null,
+    verificationLevel: !ok ? "NONE" : evidence !== null
+      ? (expectedPublicKey !== null ? "TRUSTED_EVIDENCE" : "EVIDENCE_INTEGRITY")
+      : (expectedPublicKey !== null ? "TRUSTED_RECEIPT" : "RECEIPT_INTEGRITY")
   };
 }

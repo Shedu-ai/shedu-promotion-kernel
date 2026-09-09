@@ -26,6 +26,10 @@ Sandboxed validation: When the kernel executes candidate validation—not while 
 
 The resulting receipt can be verified offline and optionally signed with Ed25519.
 
+For explicit requirement-to-check bindings, reusable behavioral fixtures and
+receipt consumption that requires a pinned signer plus complete evidence, see
+[mechanical requirement coverage](docs/mechanical-coverage.md).
+
 ## How the kernel checks it
 
 The kernel compiles the work contract and policy packs into an immutable execution plan. That plan binds:

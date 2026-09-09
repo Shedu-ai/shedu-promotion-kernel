@@ -218,6 +218,39 @@ export function compilePlan({
       if (check.validator.kind === "TARGET_COMMAND" && !isResolvableTargetExecutable(check.validator.argv[0])) {
         fail("UNKNOWN_VALIDATOR", `check ${check.checkId} target command executable ${JSON.stringify(check.validator.argv[0])} is not an admitted toolchain executable`);
       }
+      if (check.outputSchemaId === "behavioral-report@1" && (
+        check.validator.kind !== "TARGET_COMMAND" || check.validator.argv.length !== 3 ||
+        !check.validator.inputManifest.includes(check.validator.argv[1]) ||
+        !check.validator.inputManifest.includes(check.validator.argv[2]) ||
+        !check.inputs.some((input) => input.startsWith("acceptance-criterion."))
+      )) fail("POLICY_CONFLICT", `behavioral check ${check.checkId} requires a bound runner, cases file and criterion mapping`);
+    }
+  }
+
+  // Opt-in requirement coverage is declared in trusted, digest-pinned pack
+  // inputs. Once any criterion is tagged, every contract criterion must map
+  // to an executable blocking check. This proves wiring, not that an
+  // assertion faithfully or exhaustively represents natural-language intent.
+  const criterionPrefix = "acceptance-criterion.";
+  const criterionBindings = [...checkById.values()].flatMap((check) =>
+    check.inputs.filter((input) => input.startsWith(criterionPrefix))
+      .map((input) => ({ check, criterionId: input.slice(criterionPrefix.length) }))
+  );
+  if (criterionBindings.length > 0) {
+    const covered = new Set();
+    for (const { check, criterionId } of criterionBindings) {
+      if (!workContract.acceptanceCriterionIds.includes(criterionId)) {
+        fail("POLICY_CONFLICT", `check ${check.checkId} binds undeclared acceptance criterion ${criterionId}`);
+      } else if ((check.validator.kind === "TARGET_COMMAND" && check.validator.inputManifest.length === 0) ||
+        (check.effect !== "BLOCKING" && !profile.strengthen.includes(check.checkId)) || check.resultConsumer !== "DISPOSITION_REDUCER" ||
+        check.phase !== "CANDIDATE_VALIDATION") {
+        fail("POLICY_CONFLICT", `acceptance criterion ${criterionId} requires a blocking candidate-validation check with bound executable authority`);
+      } else {
+        covered.add(criterionId);
+      }
+    }
+    for (const criterionId of workContract.acceptanceCriterionIds) {
+      if (!covered.has(criterionId)) fail("POLICY_CONFLICT", `acceptance criterion ${criterionId} has no executable blocking coverage`);
     }
   }
 

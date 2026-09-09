@@ -381,10 +381,11 @@ function runInspectEvidence(argv) {
 function runVerifyReceipt(argv) {
   const usage = () =>
     emitError("CLI_USAGE", [
-      { reasonCode: "CLI_USAGE", message: "usage: verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]" }
+      { reasonCode: "CLI_USAGE", message: "usage: verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>] [--require trusted-evidence]" }
     ]);
-  const flags = parseFlags(argv, ["--receipt", "--plan", "--evidence", "--public-key"]);
+  const flags = parseFlags(argv, ["--receipt", "--plan", "--evidence", "--public-key", "--require"]);
   if (!flags || !flags.has("--receipt") || !flags.has("--plan")) return usage();
+  if (flags.has("--require") && flags.get("--require") !== "trusted-evidence") return usage();
   let receiptBytes;
   let planBytes;
   try {
@@ -399,12 +400,14 @@ function runVerifyReceipt(argv) {
     receiptBytes,
     planBytes,
     evidenceDir: flags.get("--evidence") ?? null,
-    expectedPublicKey: flags.get("--public-key") ?? null
+    expectedPublicKey: flags.get("--public-key") ?? null,
+    verificationPolicy: flags.has("--require") ? "TRUSTED_EVIDENCE" : "INSPECT"
   });
   process.stdout.write(
     `${JSON.stringify({
       schemaVersion: "receipt-verification@1",
       ok: verification.ok,
+      verificationLevel: verification.verificationLevel,
       disposition: verification.disposition,
       errors: verification.errors
     })}\n`
