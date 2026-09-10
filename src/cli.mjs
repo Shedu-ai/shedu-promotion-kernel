@@ -3,7 +3,7 @@ import { WORK_CONTRACT_KINDS, evaluationFormat, validateVersionedDocument } from
 
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadAuthorityDocument, verifyImmutableCommit } from "./authority.mjs";
@@ -426,7 +426,55 @@ function runConformanceCommand(argv) {
   return status.allPassed ? 0 : 2;
 }
 
+const EXPERIMENTAL_LAUNCHER = fileURLToPath(new URL("../scripts/experimental-kernel.mjs", import.meta.url));
+
+function sourceIdentityRequested(argv) {
+  return argv.includes("--source-identity") || process.env.SHEDU_CLI_SOURCE === "1";
+}
+
+function hasCallerAdmissionMaterial(argv) {
+  if (process.env.SHEDU_ATTESTATION_FILE || process.env.SHEDU_PINNED_KEY || process.env.SHEDU_EXPECTED_COMMIT) {
+    return true;
+  }
+  return argv.some((value) => value === "--attestation" || value === "--pinned-key" || value === "--expected-commit");
+}
+
+function experimentalFrontDoorArgv(argv) {
+  if (argv.length === 0) return ["status"];
+  if (argv[0] === "--subject-probe") return ["probe"];
+  if (argv[0] === "status" && argv.length === 1) return ["status"];
+  if (argv[0] === "evaluate" || argv[0] === "doctor" || argv[0] === "setup" || argv[0] === "probe") {
+    return argv;
+  }
+  return null;
+}
+
+function shouldUseExperimentalFrontDoor(argv) {
+  if (process.env.SHEDU_EXPERIMENTAL_CHILD === "1") return false;
+  if (sourceIdentityRequested(argv)) return false;
+  if (hasCallerAdmissionMaterial(argv)) return false;
+  if (!existsSync(EXPERIMENTAL_LAUNCHER)) return false;
+  return experimentalFrontDoorArgv(argv) !== null;
+}
+
+function runExperimentalFrontDoor(argv) {
+  const mapped = experimentalFrontDoorArgv(argv);
+  const result = spawnSync(process.execPath, [EXPERIMENTAL_LAUNCHER, ...mapped], {
+    stdio: "inherit",
+    env: { ...process.env, SHEDU_EXPERIMENTAL_CHILD: "1" },
+    windowsHide: true
+  });
+  if (result.error) {
+    return emitError("INFRASTRUCTURE_FAILURE", [
+      { reasonCode: "INFRASTRUCTURE_FAILURE", message: result.error.message }
+    ]);
+  }
+  return result.status ?? 2;
+}
+
 export function main(argv = process.argv.slice(2)) {
+  if (shouldUseExperimentalFrontDoor(argv)) return runExperimentalFrontDoor(argv);
+  argv = argv.filter((value) => value !== "--source-identity");
   if (argv.length === 0) return runStatus([]);
   if (argv.length === 1 && argv[0] === "--subject-probe") {
     process.stdout.write(`${JSON.stringify(subjectProbe(committedAdmission()))}\n`);

@@ -42,7 +42,7 @@ const baseOk = (extra = {}) => {
 };
 
 test("the shipped subject probe is honestly FOUNDATION_ONLY (no pinned attestation key)", () => {
-  const result = spawnSync(process.execPath, ["src/cli.mjs", "--subject-probe"], {
+  const result = spawnSync(process.execPath, ["src/cli.mjs", "--source-identity", "--subject-probe"], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8"
   });
@@ -106,7 +106,7 @@ test("stale, wrong-commit, wrong-key, and replayed attestations all fail closed"
 });
 
 test("no-argument execution is the read-only live status projection", () => {
-  const result = spawnSync(process.execPath, ["src/cli.mjs"], {
+  const result = spawnSync(process.execPath, ["src/cli.mjs", "--source-identity"], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8"
   });
@@ -126,7 +126,7 @@ test("the Bench subject contract is honestly FOUNDATION_ONLY with no promotion e
   const subject = JSON.parse(readFileSync(new URL("../.harness-bench/subject.json", import.meta.url), "utf8"));
   assert.equal(subject.implementationStatus, "FOUNDATION_ONLY");
   assert.equal(subject.promotionArgv, null);
-  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "status"]);
+  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "--source-identity", "status"]);
   assert.deepEqual(subject.evidenceInspectionArgv, ["node", "src/cli.mjs", "inspect-evidence"]);
   assert.deepEqual(subject.conformanceArgv, ["node", "src/cli.mjs", "conformance"]);
   assert.match(KERNEL_RELEASE, /@shedu\/promotion-kernel@/);

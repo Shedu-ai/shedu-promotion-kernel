@@ -45,7 +45,7 @@ test("a FIFO contract path is refused by the CLI's bounded read", () => {
   const run = spawnSync(
     process.execPath,
     [join(kernelRoot, "src", "cli.mjs"), "evaluate", "--contract", fifo, "--repo", target.repoDir, "--out", out],
-    { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 10000 }
+    { encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }, timeout: 10000 }
   );
   const elapsedMs = performance.now() - started;
   assert.equal(run.status, 2, run.stdout);
@@ -69,7 +69,7 @@ test("a bounded regular contract is accepted (the bound does not reject legitima
   const run = spawnSync(
     process.execPath,
     [join(kernelRoot, "src", "cli.mjs"), "evaluate", "--contract", path, "--repo", target.repoDir, "--out", out],
-    { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 20000 }
+    { encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }, timeout: 20000 }
   );
   assert.equal(run.status, 2);
   assert.equal(JSON.parse(run.stderr).reasonCode, "NOT_ADMITTED");
@@ -86,7 +86,7 @@ test("a final-path symlink is refused instead of creating a stat/read substituti
   const run = spawnSync(
     process.execPath,
     [join(kernelRoot, "src", "cli.mjs"), "evaluate", "--contract", link, "--repo", dir, "--out", out],
-    { encoding: "utf8", env: { PATH: process.env.PATH }, timeout: 10000 }
+    { encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }, timeout: 10000 }
   );
   assert.equal(run.status, 2);
   assert.equal(JSON.parse(run.stderr).reasonCode, "AUTHORITY_OBJECT_MISSING");

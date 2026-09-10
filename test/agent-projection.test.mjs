@@ -213,7 +213,7 @@ test("projection schemas reject unknown actions and contradictory counts", () =>
 });
 
 test("the read-only interface has complete registered/implemented/dispatched/emitted/consumed closure", () => {
-  const subjectRun = spawnSync(process.execPath, ["src/cli.mjs", "status"], { cwd: ROOT, encoding: "utf8" });
+  const subjectRun = spawnSync(process.execPath, ["src/cli.mjs", "--source-identity", "status"], { cwd: ROOT, encoding: "utf8" });
   assert.equal(subjectRun.status, 0, subjectRun.stderr);
   const evaluationRun = spawnSync(
     process.execPath,

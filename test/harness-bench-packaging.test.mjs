@@ -37,7 +37,7 @@ test("subject.json is valid against the Harness Bench subject template and decla
   for (const key of ["contract", "repository", "outputDir", "attestation", "pinnedKey", "expectedCommit", "lifecycleAttestation", "lifecycleEvidence", "lifecyclePolicy", "activationSpecification", "conformanceCertification", "predecessorLifecycleAttestation", "lifecycleAuthorityId", "signKey", "projection"]) {
     assert.ok(subject.promotionParameterMap[key], `parameter ${key} must be declared`);
   }
-  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "status"]);
+  assert.deepEqual(subject.statusArgv, ["node", "src/cli.mjs", "--source-identity", "status"]);
   assert.deepEqual(Object.keys(subject.statusParameterMap), ["outputDir"]);
   assert.deepEqual(subject.evidenceInspectionArgv, ["node", "src/cli.mjs", "inspect-evidence"]);
   assert.deepEqual(Object.keys(subject.evidenceInspectionParameterMap), ["outputDir", "artifactId", "maxBytes"]);
@@ -102,7 +102,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
   const run = spawnSync(process.execPath, [argv[1], ...argv.slice(2)], {
     cwd: copy,
     encoding: "utf8",
-    env: { PATH: process.env.PATH }
+    env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }
   });
   assert.equal(run.status, 0, run.stderr);
   const receipt = JSON.parse(run.stdout);
@@ -134,7 +134,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
 
   const evaluationStatusArgv = buildArgvFromDeclaration(subject.statusArgv, subject.statusParameterMap, { outputDir: out });
   const evaluationStatusRun = spawnSync(process.execPath, [evaluationStatusArgv[1], ...evaluationStatusArgv.slice(2)], {
-    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }
   });
   assert.equal(evaluationStatusRun.status, 0, evaluationStatusRun.stderr);
   const evaluationStatus = JSON.parse(evaluationStatusRun.stdout);
@@ -151,7 +151,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
     { outputDir: out, artifactId: selected, maxBytes: "32" }
   );
   const inspectRun = spawnSync(process.execPath, [inspectArgv[1], ...inspectArgv.slice(2)], {
-    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }
   });
   assert.equal(inspectRun.status, 0, inspectRun.stderr);
   const evidenceView = JSON.parse(inspectRun.stdout);
@@ -171,7 +171,7 @@ test("driving the CLI purely from the declared argv + parameter map admits and p
     projection: "agent"
   });
   const compactRun = spawnSync(process.execPath, [compactArgv[1], ...compactArgv.slice(2)], {
-    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH }
+    cwd: copy, encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }
   });
   assert.equal(compactRun.status, 0, compactRun.stderr);
   assert.equal(JSON.parse(compactRun.stdout).schemaVersion, "kernel-evaluation-summary@1");

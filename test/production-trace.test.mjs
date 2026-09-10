@@ -133,7 +133,7 @@ test("the admission caller-flag is gone and no CLI edit makes the worker promote
   const run = spawnSync(
     process.execPath,
     [cliPath, "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir()],
-    { encoding: "utf8", env: { PATH: process.env.PATH } }
+    { encoding: "utf8", env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" } }
   );
   assert.equal(run.status, 2, run.stdout);
   assert.equal(JSON.parse(run.stderr).reasonCode, "NOT_ADMITTED");

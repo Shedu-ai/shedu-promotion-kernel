@@ -93,11 +93,12 @@ certified commit and tree into a detached cache, removes its Git remote, checks
 that it is clean, and supplies the public admission evidence automatically.
 Users do not copy a key, attestation path, or commit id.
 
-The ordinary source entrypoint still reports `FOUNDATION_ONLY` when used
-without the launcher. That is intentional: mutable source cannot certify
-itself. `FOUNDATION_ONLY` now describes an unauthenticated checkout, not the
-availability of the public experimental product. The signing key remains
-external and private; only its public key and signed evidence are published.
+`node src/cli.mjs` is now the public front door: with no admission flags it
+invokes the experimental launcher and evaluates the certified kernel, not
+the files in this working tree. Mutable source still cannot certify itself.
+`node src/cli.mjs --source-identity --subject-probe` remains `FOUNDATION_ONLY`.
+The signing key remains external and private; only its public key and signed
+evidence are published.
 
 The source now recognizes an ordered, externally attested lifecycle:
 `FOUNDATION_ONLY → EXPERIMENTAL → PILOT_ELIGIBLE → CERTIFIED`. Higher states
@@ -123,7 +124,17 @@ Exploration, idea generation, brief/specification authoring, model selection, da
 
 ## CLI surfaces
 
-Use the admitted public launcher for evaluation:
+The default `src/cli.mjs` commands that need a promotion entrypoint (`status`,
+`--subject-probe`, `evaluate`, `doctor`, `setup`) invoke the experimental
+launcher. You can type the source path and still get a real evaluation:
+
+```sh
+node src/cli.mjs --subject-probe
+node src/cli.mjs status
+node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>] [--projection <full|agent>]
+```
+
+The launcher itself remains available:
 
 ```sh
 node scripts/experimental-kernel.mjs doctor
@@ -134,19 +145,18 @@ node scripts/experimental-kernel.mjs inspect-evidence --out <evaluation-output-d
 node scripts/experimental-kernel.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
 ```
 
-The lower-level unauthenticated source surfaces remain available for
-development and independent verification:
+Unauthenticated source identity and local development commands stay on this
+checkout. They do not admit the working tree:
 
 ```sh
-node src/cli.mjs
-node src/cli.mjs status [--out <evaluation-output-dir>]
+node src/cli.mjs --source-identity --subject-probe
+node src/cli.mjs --source-identity status
+node src/cli.mjs status --out <evaluation-output-dir>
 node src/cli.mjs compile --contract <file> --repo <dir>
-node src/cli.mjs evaluate --contract <file> --repo <dir> --out <dir> [--sign-key <pem>] [--projection <full|agent>]
 node src/cli.mjs inspect-evidence --out <evaluation-output-dir> --artifact <artifact-id> [--max-bytes <1-65536>]
 node src/cli.mjs verify-receipt --receipt <file> --plan <file> [--evidence <dir>] [--public-key <hex>]
 node src/cli.mjs conformance --out <dir>
 node src/cli.mjs execution-preflight
-node src/cli.mjs --subject-probe
 ```
 
 Each emits machine-readable JSON on stdout and machine errors on stderr.

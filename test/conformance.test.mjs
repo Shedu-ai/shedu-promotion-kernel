@@ -23,7 +23,7 @@ const declaredArgv = subject.conformanceArgv;
 const cliRun = spawnSync(process.execPath, declaredArgv.slice(1), {
   cwd: fileURLToPath(new URL("..", import.meta.url)),
   encoding: "buffer",
-  env: { PATH: process.env.PATH ?? "", BENCH_ARTIFACTS }
+  env: { PATH: process.env.PATH ?? "", BENCH_ARTIFACTS, SHEDU_CLI_SOURCE: "1" }
 });
 assert.equal(cliRun.status, 0, cliRun.stderr?.toString("utf8"));
 const OUT_DIR = join(BENCH_ARTIFACTS, "kernel-conformance");
