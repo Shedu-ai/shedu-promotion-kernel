@@ -26,6 +26,6 @@
     "generate:bounded-contracts": "node scripts/generate-bounded-contract-schemas.mjs",
     "generate:bounded-seccomp": "node scripts/generate-bounded-seccomp.mjs",
     "verify:sample-policy": "node scripts/verify-sample-policy.mjs",
-    "test": "node --test --test-concurrency=1"
+    "test": "SHEDU_CLI_SOURCE=1 node --test --test-concurrency=1"
   }
 }

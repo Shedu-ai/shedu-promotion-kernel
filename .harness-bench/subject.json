@@ -7,12 +7,14 @@
   "probeArgv": [
     "node",
     "src/cli.mjs",
+    "--source-identity",
     "--subject-probe"
   ],
   "promotionArgv": null,
   "statusArgv": [
     "node",
     "src/cli.mjs",
+    "--source-identity",
     "status"
   ],
   "statusParameterMap": {

@@ -210,7 +210,7 @@ test("direct evaluate is refused when the subject is not admitted", () => {
   writeFileSync(contractPath, contractBytesOf(target.contractFor(candidate)));
   const run = spawnSync(
     process.execPath,
-    ["src/cli.mjs", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir()],
+    ["src/cli.mjs", "--source-identity", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir()],
     { cwd: new URL("..", import.meta.url), encoding: "utf8" }
   );
   assert.equal(run.status, 2, run.stdout);
@@ -219,7 +219,7 @@ test("direct evaluate is refused when the subject is not admitted", () => {
   // Even with a signing key the gate refuses before evaluating.
   const withKey = spawnSync(
     process.execPath,
-    ["src/cli.mjs", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir(), "--sign-key", "/nonexistent"],
+    ["src/cli.mjs", "--source-identity", "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", outDir(), "--sign-key", "/nonexistent"],
     { cwd: new URL("..", import.meta.url), encoding: "utf8" }
   );
   assert.equal(withKey.status, 2);

@@ -63,7 +63,7 @@ test("a clean detached worktree with an external attestation admits and evaluate
     const runEvaluate = (extraFlags) =>
       spawnSync(process.execPath, [cli, "evaluate", "--contract", contractPath, "--repo", target.repoDir, "--out", out, ...extraFlags], {
         encoding: "utf8",
-        env: { PATH: process.env.PATH }
+        env: { PATH: process.env.PATH, SHEDU_CLI_SOURCE: "1" }
       });
 
     // With the correct external material → admitted and PROMOTABLE.
