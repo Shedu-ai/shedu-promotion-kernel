@@ -85,7 +85,10 @@ cases, implementation files, runtime bundle and toolchain bytes.
 
 The bounded fixture domain is ECMAScript `.mjs` with contained relative imports,
 plain data objects/arrays, exact BigInts and settled promises. Each scenario
-gets a fresh VM. Shared intrinsics are frozen; proxies, accessors, symbols,
+gets a fresh VM. Shared intrinsics retain ordinary writable semantics. The
+observer captures its operations before candidate evaluation, uses private
+null-prototype buffers and bypasses candidate iterator/serialization hooks;
+proxies, accessors, symbols,
 non-data prototypes and host APIs are unsupported. The engine has a 64 MiB
 memory limit, 1 MiB stack limit and the command deadline; modules and observation
 graphs have byte/size limits. Ordinary Node CI commands keep their existing

@@ -111,3 +111,54 @@ test('candidate iterator-prototype hooks cannot hide argument mutations from the
  const result=executeSource(source,cases);
  assert.notEqual(result.report?.status,'PASS','iterator hooks must not hide a mutation');
 });
+
+// Regression for CI-green experiment base-special-own-keys: freezing inherited
+// data properties made otherwise ordinary strict-mode assignments throw.
+test('ordinary own-property writes match native JavaScript without freezing shared prototypes',async()=>{
+ const source=`export function identity(x) {
+  const out={};
+  for(const key of Object.keys(x)) {
+   if(key==='__proto__')Object.defineProperty(out,key,{value:x[key],writable:true,enumerable:true,configurable:true});
+   else out[key]=x[key];
+  }
+  if(Object.isFrozen(Object.prototype)||Object.isFrozen(Array.prototype))throw Error('altered runtime');
+  return out;
+ }`;
+ const properties=['constructor','hasOwnProperty','toString','valueOf','__proto__','prototype'].map((name,i)=>({name,value:i+1,enumerable:true}));
+ const fixture={$shedu:'object',properties};
+ const {decodeValue,snapshot}=await import('../src/behavioral-data.mjs');
+ const native=await import('data:text/javascript,'+encodeURIComponent(source));
+ assert.deepEqual(snapshot(native.identity(decodeValue(fixture))),snapshot(decodeValue(fixture)));
+ const document=structuredClone(caseDocument);
+ Object.assign(document.cases[0],{args:[fixture],expect:{returns:fixture},preserveArgs:[0],freshReturn:true});
+ delete document.cases[0].returnArgIndex;
+ assert.equal(executeSource(source,document).report?.status,'PASS');
+});
+
+test('mutable intrinsics cannot corrupt observations, serialization, or typed exceptions',()=>{
+ const poison=`
+  Object.prototype.toJSON=()=>({roots:[],nodes:[]});
+  Array.prototype.toJSON=()=>[];
+  Array.prototype.push=()=>0;
+  Array.prototype[Symbol.iterator]=function*(){};
+  Set.prototype.has=()=>true;Set.prototype.add=()=>{};
+  WeakMap.prototype.has=()=>true;WeakMap.prototype.get=()=>0;WeakMap.prototype.set=()=>{};
+  Object.is=()=>true;Object.hasOwn=()=>true;
+  Object.getOwnPropertyDescriptor=()=>({value:1});Reflect.ownKeys=()=>[];
+  Reflect.apply=()=>true;JSON.stringify=()=>"[]";
+  Object.defineProperty(TypeError,Symbol.hasInstance,{value:()=>true});
+ `;
+ for(const [body,expected] of [['return x;','PASS'],['x.hidden=2;return x;','BLOCKED'],['return {x:0};','BLOCKED']]) {
+  const document=structuredClone(caseDocument);document.cases[0].preserveArgs=[0];
+  assert.equal(executeSource(poison+`export function identity(x){${body}}`,document).report?.status,expected);
+ }
+ const throws=structuredClone(caseDocument);throws.cases[0].expect={throws:'TypeError'};delete throws.cases[0].returnArgIndex;
+ for(const [expression,expected] of [['new TypeError("real")','PASS'],['new Error("wrong type")','BLOCKED']])
+  assert.equal(executeSource(poison+`export function identity(){throw ${expression};}`,throws).report?.status,expected);
+});
+
+test('inherited descriptor hooks cannot turn candidate accessors into observed data',()=>{
+ const source=`export function identity(x){Object.defineProperty(x,'hidden',{get(){throw Error('must not execute getter');},enumerable:true});Object.prototype.value=1;return x;}`;
+ const cases=structuredClone(caseDocument);cases.cases[0].preserveArgs=[0];
+ assert.equal(executeSource(source,cases).report?.status,'BLOCKED');
+});
