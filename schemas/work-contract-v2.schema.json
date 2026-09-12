@@ -260,6 +260,13 @@
         "issuedAt": {
           "$ref": "#/$defs/timestamp"
         },
+        "issuer": {
+          "enum": [
+            "SUBMITTER",
+            "CI",
+            "MAINTAINER"
+          ]
+        },
         "signature": {
           "oneOf": [
             {

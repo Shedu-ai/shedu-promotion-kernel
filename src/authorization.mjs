@@ -1,5 +1,6 @@
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { canonicalize } from "./canonical-json.mjs";
+import { allowedIssuersOf, claimedIssuerOf } from "./admission-policy.mjs";
 
 // Control point: contract authorization against a base-authoritative trust
 // root. A contract's authorization signature is NEVER trusted merely because
@@ -35,8 +36,16 @@ export function verifyContractAuthorization(workContract, authorizationPolicy) {
     if (mode === "SIGNED") {
       return { ok: false, reasonCode: "AUTHORIZATION_INVALID", message: "profile requires a signed contract, but the contract is unsigned" };
     }
+    const issuer = claimedIssuerOf(workContract, false);
+    if (!allowedIssuersOf(authorizationPolicy).includes(issuer)) {
+      return {
+        ok: false,
+        reasonCode: "CONTRACT_ISSUER_UNAUTHENTICATED",
+        message: `issuer ${issuer} is not admitted by this profile without authentication`
+      };
+    }
     // Explicit unsigned-personal policy: allowed, but not authenticated.
-    return { ok: true, authenticated: false, mode };
+    return { ok: true, authenticated: false, mode, issuer };
   }
 
   // A present signature must be structurally valid regardless of mode: the
@@ -46,9 +55,17 @@ export function verifyContractAuthorization(workContract, authorizationPolicy) {
   }
 
   if (mode === "UNSIGNED_PERSONAL") {
+    const issuer = claimedIssuerOf(workContract, false);
+    if (!allowedIssuersOf(authorizationPolicy).includes(issuer)) {
+      return {
+        ok: false,
+        reasonCode: "CONTRACT_ISSUER_UNAUTHENTICATED",
+        message: `issuer ${issuer} is not admitted by this profile without authentication`
+      };
+    }
     // Personal mode does not authenticate provenance even for a valid
     // self-signature; the signature only proves body integrity.
-    return { ok: true, authenticated: false, mode, publicKey: signature.publicKey };
+    return { ok: true, authenticated: false, mode, issuer, publicKey: signature.publicKey };
   }
 
   // SIGNED mode: the key must be a trusted authorizer AND the claimed identity
@@ -60,5 +77,13 @@ export function verifyContractAuthorization(workContract, authorizationPolicy) {
   if (workContract.authorization.identity !== authorizer.identity) {
     return { ok: false, reasonCode: "AUTHORIZATION_INVALID", message: `contract identity ${JSON.stringify(workContract.authorization.identity)} does not match the trusted authorizer for its signing key` };
   }
-  return { ok: true, authenticated: true, mode, identity: authorizer.identity, publicKey: signature.publicKey };
+  const issuer = claimedIssuerOf(workContract, true);
+  if (!allowedIssuersOf(authorizationPolicy).includes(issuer)) {
+    return {
+      ok: false,
+      reasonCode: "CONTRACT_ISSUER_UNAUTHENTICATED",
+      message: `issuer ${issuer} is not an allowed contract issuer for this profile`
+    };
+  }
+  return { ok: true, authenticated: true, mode, issuer, identity: authorizer.identity, publicKey: signature.publicKey };
 }

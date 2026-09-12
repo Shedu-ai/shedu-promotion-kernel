@@ -145,6 +145,7 @@
       "properties": {
         "identity": {"type": "string", "minLength": 1, "maxLength": 256},
         "issuedAt": {"$ref": "#/$defs/timestamp"},
+        "issuer": {"enum": ["SUBMITTER", "CI", "MAINTAINER"]},
         "signature": {
           "oneOf": [
             {"type": "null"},
