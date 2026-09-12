@@ -61,6 +61,15 @@
       "maxItems": 128,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/kebabId"}
+    },
+    "requiredAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capabilityIndex": {"enum": ["REQUIRED", "OMITTED"]},
+        "priorArtQuery": {"enum": ["REQUIRED", "OMITTED"]},
+        "mechanismRegistry": {"enum": ["REQUIRED", "OMITTED"]}
+      }
     }
   },
   "$defs": {

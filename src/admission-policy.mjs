@@ -23,3 +23,18 @@ export function claimedIssuerOf(workContract, authenticated) {
   if (CONTRACT_ISSUERS.includes(claimed)) return claimed;
   return authenticated ? "MAINTAINER" : "SUBMITTER";
 }
+
+export const AUTHORITY_REQUIREMENTS = Object.freeze(["REQUIRED", "OMITTED"]);
+
+export function requiredAuthoritiesOf(profile) {
+  const modeDefault = profile?.authorization?.mode === "SIGNED" ? "REQUIRED" : "OMITTED";
+  const declared = profile?.requiredAuthorities && typeof profile.requiredAuthorities === "object"
+    ? profile.requiredAuthorities
+    : {};
+  const one = (key) => (AUTHORITY_REQUIREMENTS.includes(declared[key]) ? declared[key] : modeDefault);
+  return {
+    capabilityIndex: one("capabilityIndex"),
+    priorArtQuery: one("priorArtQuery"),
+    mechanismRegistry: one("mechanismRegistry")
+  };
+}

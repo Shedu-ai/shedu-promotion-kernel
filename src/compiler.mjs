@@ -9,6 +9,7 @@ import {
   executionRequirementForLegacyContract
 } from "./execution-policy.mjs";
 import { portableLinuxExecutionAuthority } from "./oci-runtime.mjs";
+import { requiredAuthoritiesOf } from "./admission-policy.mjs";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -91,6 +92,17 @@ export function compilePlan({
   if (workContract.policyProfile.profileId !== profile.profileId) {
     fail("PROFILE_IDENTITY_MISMATCH", `work contract names profile ${workContract.policyProfile.profileId}, document declares ${profile.profileId}`);
   }
+  const requiredAuthorities = requiredAuthoritiesOf(profile);
+  if (requiredAuthorities.capabilityIndex === "REQUIRED" && workContract.capabilityIndex === null) {
+    fail("REQUIRED_AUTHORITY_MISSING", "profile requires a capability index");
+  }
+  if (requiredAuthorities.priorArtQuery === "REQUIRED" && workContract.priorArtQuery === null) {
+    fail("REQUIRED_AUTHORITY_MISSING", "profile requires a prior-art query");
+  }
+  if (requiredAuthorities.mechanismRegistry === "REQUIRED" && workContract.mechanismRegistry === null) {
+    fail("REQUIRED_AUTHORITY_MISSING", "profile requires a mechanism registry");
+  }
+
   const expectedCapabilityDigest = workContract.capabilityIndex === null ? null : workContract.capabilityIndex.digest;
   if (expectedCapabilityDigest !== capabilityIndexDigest) {
     fail("AUTHORITY_DIGEST_MISMATCH", `work contract pins capability-index digest ${expectedCapabilityDigest}, received ${capabilityIndexDigest}`);
