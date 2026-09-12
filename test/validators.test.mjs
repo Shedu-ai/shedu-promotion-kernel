@@ -8,7 +8,7 @@ import {
 } from "../src/validators/candidate-identity.mjs";
 import { classifyPath, scopeBoundaryClassify } from "../src/validators/scope-boundary.mjs";
 import { materializeWorktree } from "../src/workspace.mjs";
-import { commitAll, commitPlumbed, makeContract, makeGitRepo, writeRepoFile } from "./fixtures.mjs";
+import { commitAll, commitPlumbed, git, makeContract, makeGitRepo, writeRepoFile } from "./fixtures.mjs";
 
 const SCOPE = { allowed: ["src/"], readonly: ["docs/"], forbidden: ["policy/", "src/secrets/"] };
 
@@ -85,6 +85,63 @@ test("a missing base or candidate FIREs with authority reasons", () => {
   });
   assert.equal(missing.outcome, "FIRED");
   assert.ok(missing.reasonCodes.includes("AUTHORITY_OBJECT_MISSING"));
+});
+
+test("UNSIGNED_PERSONAL may evaluate a two-commit fixture with no remote", () => {
+  const { repoDir, baseCommit } = makeTargetRepo();
+  writeRepoFile(repoDir, "src/feature.mjs", "export const f = 2;\n");
+  const candidate = commitAll(repoDir, "feature");
+  const result = candidateIdentityVerify({
+    repoDir,
+    workContract: contractFor(repoDir, baseCommit, candidate),
+    authorizationPolicy: { mode: "UNSIGNED_PERSONAL", trustedAuthorizers: [] },
+    candidateDir: null
+  });
+  assert.equal(result.outcome, "PASS", JSON.stringify(result));
+});
+
+test("SIGNED FIREs RECONSTRUCTED_SUBJECT on a root-base repo with no remote", () => {
+  const { repoDir, baseCommit } = makeTargetRepo();
+  writeRepoFile(repoDir, "src/feature.mjs", "export const f = 2;\n");
+  const candidate = commitAll(repoDir, "feature");
+  const result = candidateIdentityVerify({
+    repoDir,
+    workContract: contractFor(repoDir, baseCommit, candidate),
+    authorizationPolicy: { mode: "SIGNED", trustedAuthorizers: [] },
+    candidateDir: null
+  });
+  assert.equal(result.outcome, "FIRED");
+  assert.ok(result.reasonCodes.includes("RECONSTRUCTED_SUBJECT"));
+});
+
+test("SIGNED accepts a repository that declares an origin remote", () => {
+  const { repoDir, baseCommit } = makeTargetRepo();
+  git(repoDir, "remote", "add", "origin", "https://example.invalid/repo.git");
+  writeRepoFile(repoDir, "src/feature.mjs", "export const f = 2;\n");
+  const candidate = commitAll(repoDir, "feature");
+  const result = candidateIdentityVerify({
+    repoDir,
+    workContract: contractFor(repoDir, baseCommit, candidate),
+    authorizationPolicy: { mode: "SIGNED", trustedAuthorizers: [] },
+    candidateDir: null
+  });
+  assert.equal(result.outcome, "PASS", JSON.stringify(result));
+});
+
+test("SIGNED rejects a TREE candidate as a reconstructed subject", () => {
+  const { repoDir, baseCommit } = makeTargetRepo();
+  writeRepoFile(repoDir, "src/feature.mjs", "export const f = 2;\n");
+  const candidate = commitAll(repoDir, "feature");
+  const workContract = contractFor(repoDir, baseCommit, candidate);
+  workContract.target.candidate = { kind: "TREE", id: candidate };
+  const result = candidateIdentityVerify({
+    repoDir,
+    workContract,
+    authorizationPolicy: { mode: "SIGNED", trustedAuthorizers: [] },
+    candidateDir: null
+  });
+  assert.equal(result.outcome, "FIRED");
+  assert.ok(result.reasonCodes.includes("RECONSTRUCTED_SUBJECT"));
 });
 
 test("post-validation mutation FIREs tree stability", () => {

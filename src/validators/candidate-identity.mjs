@@ -1,8 +1,11 @@
 import { verifyImmutableCommit } from "../authority.mjs";
+import { subjectBindingOf } from "../admission-policy.mjs";
 import {
+  commitParentCount,
   gitRun,
   headTree,
   isAncestor,
+  repositoryHasRemote,
   treeOf,
   workspaceStatus
 } from "../workspace.mjs";
@@ -12,7 +15,7 @@ import {
 // candidate/base ancestry, and clean candidate materialization. An identity
 // failure is terminal for the run: the engine stops after admission FIREs.
 export function candidateIdentityVerify(context) {
-  const { repoDir, workContract, candidateDir } = context;
+  const { repoDir, workContract, candidateDir, authorizationPolicy } = context;
   const reasonCodes = new Set();
   const target = workContract.target;
 
@@ -33,6 +36,13 @@ export function candidateIdentityVerify(context) {
   } else {
     const tree = gitRun(repoDir, ["cat-file", "-e", `${target.candidate.id}^{tree}`]);
     if (tree.status !== 0) reasonCodes.add("AUTHORITY_OBJECT_MISSING");
+  }
+
+  if (subjectBindingOf(authorizationPolicy) === "REPOSITORY") {
+    if (target.candidate.kind !== "COMMIT") reasonCodes.add("RECONSTRUCTED_SUBJECT");
+    else if (base.ok && commitParentCount(repoDir, target.baseCommit) === 0 && !repositoryHasRemote(repoDir)) {
+      reasonCodes.add("RECONSTRUCTED_SUBJECT");
+    }
   }
 
   let materializedTree = null;

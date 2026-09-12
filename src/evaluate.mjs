@@ -293,6 +293,7 @@ export function evaluateCandidate({ repoDir, contractBytes, outDir, plantHooks =
           partial = run({
             repoDir,
             workContract,
+            authorizationPolicy: profile.value.authorization,
             plan,
             planDigest,
             check,
