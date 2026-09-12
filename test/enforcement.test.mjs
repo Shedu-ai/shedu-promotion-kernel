@@ -204,6 +204,50 @@ test("authorization is verified against a trusted authorizer set, not the embedd
   const personal = verifyContractAuthorization(makeContract(), UNSIGNED_PERSONAL);
   assert.equal(personal.ok, true);
   assert.equal(personal.authenticated, false);
+  assert.equal(personal.issuer, "SUBMITTER");
+});
+
+test("unsigned contracts cannot claim CI or maintainer issuance", () => {
+  const claimed = makeContract({
+    authorization: {
+      identity: "example-authorizer",
+      issuedAt: "2026-08-26T00:00:00Z",
+      issuer: "CI",
+      signature: null
+    }
+  });
+  const verdict = verifyContractAuthorization(claimed, UNSIGNED_PERSONAL);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.reasonCode, "CONTRACT_ISSUER_UNAUTHENTICATED");
+});
+
+test("SIGNED profiles reject a submitter-issued contract even when the signature verifies", () => {
+  const trusted = keyPairHex();
+  const SIGNED = { mode: "SIGNED", trustedAuthorizers: [{ identity: "example-authorizer", publicKey: trusted.publicKeyHex }] };
+  const submitter = signContract(makeContract({
+    authorization: {
+      identity: "example-authorizer",
+      issuedAt: "2026-08-26T00:00:00Z",
+      issuer: "SUBMITTER",
+      signature: null
+    }
+  }), trusted.pem);
+  const verdict = verifyContractAuthorization(submitter, SIGNED);
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.reasonCode, "CONTRACT_ISSUER_UNAUTHENTICATED");
+
+  const ci = signContract(makeContract({
+    authorization: {
+      identity: "example-authorizer",
+      issuedAt: "2026-08-26T00:00:00Z",
+      issuer: "CI",
+      signature: null
+    }
+  }), trusted.pem);
+  const ciVerdict = verifyContractAuthorization(ci, SIGNED);
+  assert.equal(ciVerdict.ok, true, JSON.stringify(ciVerdict));
+  assert.equal(ciVerdict.authenticated, true);
+  assert.equal(ciVerdict.issuer, "CI");
 });
 
 test("a present but invalid contract authorization signature is rejected", () => {

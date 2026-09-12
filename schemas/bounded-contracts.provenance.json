@@ -5,7 +5,7 @@
   "generated": [
     {
       "path": "work-contract-v2.schema.json",
-      "digest": "sha256:8485bf3790e25c76674735576854bb681baf14cec13cf59fa2ba4cbf13fb692f"
+      "digest": "sha256:6b3eec8ce7a18a7ca9b073f86394016097710c1066d86b7600b764e5c7130031"
     },
     {
       "path": "policy-pack-v2.schema.json",
@@ -13,7 +13,7 @@
     },
     {
       "path": "policy-profile-v2.schema.json",
-      "digest": "sha256:20ff414fb29f4cf7bd34de254c843148373132f41687c134a904c8201e01b4e4"
+      "digest": "sha256:599b7da58860907192dd9f8b90d8b7347d1334d568e49d718cdb29ed93258ab4"
     },
     {
       "path": "compiled-policy-plan-v2.schema.json",

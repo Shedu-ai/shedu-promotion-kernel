@@ -17,6 +17,13 @@
       "required": ["mode", "trustedAuthorizers"],
       "properties": {
         "mode": {"enum": ["SIGNED", "UNSIGNED_PERSONAL"]},
+        "allowedIssuers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"enum": ["SUBMITTER", "CI", "MAINTAINER"]}
+        },
         "trustedAuthorizers": {
           "type": "array",
           "maxItems": 64,
