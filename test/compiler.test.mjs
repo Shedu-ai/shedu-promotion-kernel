@@ -3,7 +3,7 @@ import test from "node:test";
 import { digestOfCanonical } from "../src/canonical-json.mjs";
 import { validateValue } from "../src/contracts.mjs";
 import { compilePlan } from "../src/compiler.mjs";
-import { makeCheck, makeContract, makePack, makeProfile, pinPacks, profileEntries } from "./fixtures.mjs";
+import { ZERO_DIGEST, makeCheck, makeContract, makePack, makeProfile, pinPacks, profileEntries } from "./fixtures.mjs";
 
 // These tests isolate profile/pack resolution mechanics from the mandatory
 // kernel packs, which are injected unconditionally on the default path and
@@ -74,6 +74,64 @@ test("profile digest drift fails before anything compiles", () => {
   const { contract, profile, packs } = fixture();
   const result = compileBare({ workContract: contract, profile, profileDigest: `sha256:${"f".repeat(64)}`, packs });
   assert.ok(reasons(result).includes("AUTHORITY_DIGEST_MISMATCH"));
+});
+
+test("UNSIGNED_PERSONAL may omit capability, prior-art, and mechanism authorities", () => {
+  const { contract, profile, profileDigest, packs } = fixture();
+  const result = compileBare({ workContract: contract, profile, profileDigest, packs });
+  assert.equal(result.ok, true, JSON.stringify(result.errors ?? []));
+});
+
+test("SIGNED profiles require those authorities unless the profile omits them", () => {
+  const { contract, profile, profileDigest, packs } = fixture({
+    mutateProfile: (current) => ({
+      ...current,
+      authorization: { mode: "SIGNED", trustedAuthorizers: [] }
+    })
+  });
+  const blocked = compileBare({ workContract: contract, profile, profileDigest, packs });
+  assert.equal(blocked.ok, false);
+  assert.equal(reasons(blocked).filter((code) => code === "REQUIRED_AUTHORITY_MISSING").length, 3);
+
+  const omitted = fixture({
+    mutateProfile: (current) => ({
+      ...current,
+      authorization: { mode: "SIGNED", trustedAuthorizers: [] },
+      requiredAuthorities: {
+        capabilityIndex: "OMITTED",
+        priorArtQuery: "OMITTED",
+        mechanismRegistry: "OMITTED"
+      }
+    })
+  });
+  const allowed = compileBare({
+    workContract: omitted.contract,
+    profile: omitted.profile,
+    profileDigest: omitted.profileDigest,
+    packs: omitted.packs
+  });
+  assert.equal(allowed.ok, true, JSON.stringify(allowed.errors ?? []));
+
+  const present = fixture({
+    mutateProfile: (current) => ({
+      ...current,
+      authorization: { mode: "SIGNED", trustedAuthorizers: [] }
+    })
+  });
+  const withAuthorities = {
+    ...present.contract,
+    capabilityIndex: { path: "policy/capability-index.json", digest: ZERO_DIGEST },
+    priorArtQuery: { path: "policy/prior-art-query.json", digest: ZERO_DIGEST },
+    mechanismRegistry: { path: "policy/mechanism-registry.json", digest: ZERO_DIGEST }
+  };
+  const compiled = compileBare({
+    workContract: withAuthorities,
+    profile: present.profile,
+    profileDigest: present.profileDigest,
+    packs: present.packs,
+    capabilityIndexDigest: ZERO_DIGEST
+  });
+  assert.equal(compiled.ok, true, JSON.stringify(compiled.errors ?? []));
 });
 
 test("pack digest drift fails compilation", () => {

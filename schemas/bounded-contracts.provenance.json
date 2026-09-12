@@ -13,7 +13,7 @@
     },
     {
       "path": "policy-profile-v2.schema.json",
-      "digest": "sha256:599b7da58860907192dd9f8b90d8b7347d1334d568e49d718cdb29ed93258ab4"
+      "digest": "sha256:1b07dd6389a2ca5a057873b69134735633d191470f6b3c51497fc7993a380933"
     },
     {
       "path": "compiled-policy-plan-v2.schema.json",
