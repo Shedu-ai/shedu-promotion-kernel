@@ -70,6 +70,18 @@ export function isAncestor(repoDir, ancestor, descendant) {
   return r.status === 0;
 }
 
+export function commitParentCount(repoDir, commit) {
+  const r = gitRun(repoDir, ["rev-list", "--parents", "-n", "1", commit]);
+  if (r.status !== 0) return 0;
+  const parts = r.stdout.trim().split(/\s+/).filter(Boolean);
+  return Math.max(0, parts.length - 1);
+}
+
+export function repositoryHasRemote(repoDir) {
+  const r = gitRun(repoDir, ["remote"]);
+  return r.status === 0 && r.stdout.trim() !== "";
+}
+
 function decodeGitPaths(bytes) {
   try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
   catch {
